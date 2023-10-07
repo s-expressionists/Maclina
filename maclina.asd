@@ -5,7 +5,7 @@
            "Tarn W. Burton <twburton@gmail.com>"
            "Bike <aeshtaer@gmail.com>")
   :maintainer "Bike <aeshtaer@gmail.com>"
-  :version "0.5.0"
+  :version "0.8.0"
   :depends-on (:maclina/base :maclina/compile :maclina/compile-file :maclina/load
                :maclina/vm-native :maclina/vm-cross))
 
@@ -15,7 +15,7 @@
            "Christian Schafmeister <chris.schaf@verizon.net>"
            "Bike <aeshtaer@gmail.com>")
   :maintainer "Bike <aeshtaer@gmail.com>"
-  :version "0.5.0"
+  :version "0.8.0"
   :depends-on (:closer-mop)
   :components ((:file "machine")
                (:file "arg-conditions")
