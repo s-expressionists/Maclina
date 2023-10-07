@@ -37,7 +37,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          path: cvm
+          path: maclina
       - name: Checkout Clostrum
         uses: actions/checkout@v4
         with:
@@ -49,7 +49,7 @@ jobs:
           echo "(:TREE #P\"${{ github.workspace }}/\")" > $HOME/.config/common-lisp/source-registry.conf.d/cleavir.conf
       - name: Generate site with Staple
         run: | # We quickload external dependencies since Staple doesn't. KLUDGE.
-          sbcl --non-interactive --eval "(ql:quickload '(:staple-markdown :closer-mop :alexandria :trucler :ecclesia :eclector :ieee-floats :clostrum :clostrum-basic :clostrum-trucler :fiveam))" --eval "(staple:generate :cvm :output-directory #p\"_site/\")"
+          sbcl --non-interactive --eval "(ql:quickload '(:staple-markdown :closer-mop :alexandria :trucler :ecclesia :eclector :ieee-floats :clostrum :clostrum-basic :clostrum-trucler :fiveam))" --eval "(staple:generate :maclina :output-directory #p\"_site/\")"
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v1
         with:

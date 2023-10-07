@@ -3,7 +3,7 @@
 ;;;; Created:  Sat May 21 12:51:59 2005
 ;;;; Contains: Tests of the declaration SPECIAL
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite special :in eval-and-compile)
 (5am:in-suite special)

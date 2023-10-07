@@ -3,7 +3,7 @@
 ;;;; Created:  Tue May  6 06:48:48 2003
 ;;;; Contains: Tests of THE
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite the :in eval-and-compile)
 (5am:in-suite the)

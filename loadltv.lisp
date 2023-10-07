@@ -1,10 +1,10 @@
-(defpackage #:cvm.load
+(defpackage #:maclina.load
   (:use #:cl)
-  (:local-nicknames (#:m #:cvm.machine)
+  (:local-nicknames (#:m #:maclina.machine)
                     (#:float #:ieee-floats))
   (:export #:load-bytecode #:load-bytecode-stream))
 
-(in-package #:cvm.load)
+(in-package #:maclina.load)
 
 (defparameter +ops+
   '((nil 65 sind)

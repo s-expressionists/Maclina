@@ -1,4 +1,4 @@
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite macroexpansion-conditions :in compiler-conditions)
 (5am:in-suite macroexpansion-conditions)
@@ -28,7 +28,7 @@
     (block nil
       (multiple-value-bind (fun warningsp failurep)
           (handler-case
-              (cvm.compile:with-compilation-unit (:override t)
+              (maclina.compile:with-compilation-unit (:override t)
                 (ccompile nil
                           `(lambda ()
                              (macrolet ((m () (funcall ,#'die))) (m)))))
@@ -48,7 +48,7 @@
       (5am:is-true warningsp "Macro warning not reported")
       (5am:is-true failurep "Macro warning not reported as failure"))
     (multiple-value-bind (fun warningsp failurep)
-        (cvm.compile:with-compilation-unit (:override t)
+        (maclina.compile:with-compilation-unit (:override t)
           (ccompile nil `(lambda ()
                            (macrolet ((m () (funcall ,#'w))) (m)))))
       (declare (ignore fun))
@@ -66,7 +66,7 @@
       (5am:is-true warningsp "Macro style warning not reported")
       (5am:is-false failurep "Macro style warning reported as failure"))
     (multiple-value-bind (fun warningsp failurep)
-        (cvm.compile:with-compilation-unit (:override t)
+        (maclina.compile:with-compilation-unit (:override t)
           (ccompile nil `(lambda ()
                            (macrolet ((m () (funcall ,#'w))) (m)))))
       (declare (ignore fun))

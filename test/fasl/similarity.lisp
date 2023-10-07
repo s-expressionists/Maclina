@@ -1,4 +1,4 @@
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 ;;; See 3.2.4.2.2
 

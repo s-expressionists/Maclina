@@ -3,7 +3,7 @@
 ;;;; Created:  Sat Oct 12 14:41:16 2002
 ;;;; Contains: Tests of UNWIND-PROTECT
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite unwind-protect :in data-and-control-flow)
 (5am:in-suite unwind-protect)

@@ -1,4 +1,4 @@
-(in-package #:cvm.compile)
+(in-package #:maclina.compile)
 
 #|
 Our basic philosophy for compiler conditions is as follows.

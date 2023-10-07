@@ -1,4 +1,4 @@
-The CVM FASL format is an implementation-independent representation of compiled Lisp files. CVM FASLs record a sequence of instructions which can be executed to perform the side effects of loading a file. The FASL "VM" is distinct from and much simpler than the CVM VM; for example there are no local variables or control flow.
+The Maclina FASL format is an implementation-independent representation of compiled Lisp files. Maclina FASLs record a sequence of instructions which can be executed to perform the side effects of loading a file. The FASL "VM" is distinct from and much simpler than the Maclina VM; for example there are no local variables or control flow.
 
 While the format is implementation-independent, the contents of files are not without careful work. If a macro form expands to an implementation-defined internal function, for example, a FASL containing that form couldn't be loaded in another implementation.
 

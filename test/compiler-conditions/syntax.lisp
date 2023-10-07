@@ -1,4 +1,4 @@
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite syntax-errors :in compiler-conditions)
 (5am:in-suite syntax-errors)

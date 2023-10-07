@@ -3,7 +3,7 @@
 ;;;; Created:  Sat Oct 19 09:33:51 2002
 ;;;; Contains: Tests of PROGN
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite progn :in data-and-control-flow)
 (5am:in-suite progn)

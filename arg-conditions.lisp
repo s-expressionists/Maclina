@@ -1,10 +1,10 @@
-(defpackage #:cvm.argparse
+(defpackage #:maclina.argparse
   (:use #:cl)
   (:export #:argument-error
            #:wrong-number-of-arguments #:odd-keywords
            #:unrecognized-keyword-argument))
 
-(in-package #:cvm.argparse)
+(in-package #:maclina.argparse)
 
 ;;; abstract parent type for errors signaled by lambda list processing
 (define-condition argument-error (program-error)

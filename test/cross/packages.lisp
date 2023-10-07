@@ -1,4 +1,4 @@
-(defpackage #:cvm.test.cross
+(defpackage #:maclina.test.cross
   (:use #:cl)
-  (:local-nicknames (#:s #:cvm.test.sham))
+  (:local-nicknames (#:s #:maclina.test.sham))
   (:export #:*client* #:fill-environment #:run #:run!))

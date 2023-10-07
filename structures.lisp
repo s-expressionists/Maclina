@@ -1,4 +1,4 @@
-(in-package #:cvm.machine)
+(in-package #:maclina.machine)
 
 (defvar *client*)
 

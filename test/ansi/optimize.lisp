@@ -3,7 +3,7 @@
 ;;;; Created:  Sat May 21 09:31:34 2005
 ;;;; Contains: Tests of the OPTIMIZE declaration
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite optimize :in eval-and-compile)
 (5am:in-suite optimize)

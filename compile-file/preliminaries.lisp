@@ -1,4 +1,4 @@
-(in-package #:cvm.compile-file)
+(in-package #:maclina.compile-file)
 
 ;;; Compilation environment the file compiler evaluates and compiles code in.
 (defvar *environment*)

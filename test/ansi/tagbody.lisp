@@ -3,7 +3,7 @@
 ;;;; Created:  Sat Oct 12 13:27:22 2002
 ;;;; Contains: Tests of TAGBODY
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite tagbody :in data-and-control-flow)
 (5am:in-suite tagbody)

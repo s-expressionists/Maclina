@@ -3,7 +3,7 @@
 ;;;; Created:  Fri Oct 18 08:21:29 2002
 ;;;; Contains: Tests for IF
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite if :in data-and-control-flow)
 (5am:in-suite if)

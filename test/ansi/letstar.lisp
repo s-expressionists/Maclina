@@ -3,7 +3,7 @@
 ;;;; Created:  Fri Jun 24 20:53:36 2005
 ;;;; Contains: Tests for LET*
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite let* :in data-and-control-flow)
 (5am:in-suite let*)

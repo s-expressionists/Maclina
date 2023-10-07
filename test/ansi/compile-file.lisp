@@ -3,7 +3,7 @@
 ;;;; Created:  Sat Apr  9 08:25:25 2005
 ;;;; Contains: Tests of COMPILE-FILE
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite compile-file :in system-construction)
 (5am:in-suite compile-file)
@@ -20,11 +20,11 @@
                             external-format)
   (declare (ignorable external-format))
   (let* ((target-pathname (or output-file
-                              (cvm.compile-file:compile-file-pathname file)))
+                              (maclina.compile-file:compile-file-pathname file)))
          (actual-warnings-p nil)
          (actual-style-warnings-p nil)
 	 (run-time-environment
-	   (cvm.compile:run-time-environment m:*client* environment)))
+	   (maclina.compile:run-time-environment m:*client* environment)))
     (when (probe-file target-pathname)
       (delete-file target-pathname))
     (m:fmakunbound m:*client* run-time-environment funname)
@@ -43,7 +43,7 @@
                              nil)))
                     (with-output-to-string
 			(*standard-output* str)
-                      (apply #'cvm.compile-file:compile-file file
+                      (apply #'maclina.compile-file:compile-file file
 			     :environment environment :allow-other-keys t args))))))
       (5am:is (= 3 (length vals)))
       (destructuring-bind (output-truename warnings-p failure-p) vals
@@ -65,7 +65,7 @@
 	(5am:is (equalp (namestring (truename target-pathname))
 			(namestring output-truename)))
 	(5am:is-false (m:fboundp m:*client* run-time-environment funname))
-        (cvm.load:load-bytecode output-truename
+        (maclina.load:load-bytecode output-truename
 				:environment run-time-environment)
 	(5am:is-true (m:fboundp m:*client* run-time-environment funname))
         (5am:is-false
@@ -88,7 +88,7 @@
   t nil)
 
 (5am:test compile-file.3
-  (let ((*package* (find-package "CVM.TEST")))
+  (let ((*package* (find-package "MACLINA.TEST")))
     (compile-file-test "compile-file-test-file-3.lisp"
                        'compile-file-test-fun.3)))
 
@@ -166,12 +166,12 @@
 #+(or) ; involves dumping pathnames, no good on SBCL
 (5am:test compile-file.16
   (let* ((file #p"compile-file-test-file-5.lisp")
-         (target-pathname (cvm.compile-file:compile-file-pathname file))
+         (target-pathname (maclina.compile-file:compile-file-pathname file))
          (*compile-print* nil)
          (*compile-verbose* nil))
     (when (probe-file target-pathname)
       (delete-file target-pathname))
-    (cvm.compile-file:compile-file file)
+    (maclina.compile-file:compile-file file)
     (load target-pathname)
     (5am:is (equalp (truename file) (funcall 'compile-file-test-fun.5)))
     (5am:is (equalp (pathname (merge-pathnames file))

@@ -3,7 +3,7 @@
 ;;;; Created:  Thu Nov 21 10:43:15 2002
 ;;;; Contains: Tests of EVAL
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite eval :in eval-and-compile)
 (5am:in-suite eval)

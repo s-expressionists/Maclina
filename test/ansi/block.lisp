@@ -3,7 +3,7 @@
 ;;;; Created:  Sat Oct 12 12:30:46 2002
 ;;;; Contains: Tests of BLOCK
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite block :in data-and-control-flow)
 (5am:in-suite block)

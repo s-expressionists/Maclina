@@ -1,4 +1,4 @@
-(in-package #:cvm.compile)
+(in-package #:maclina.compile)
 
 (define-condition bind-constant (program-error)
   ((%name :initarg :name :reader name))

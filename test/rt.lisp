@@ -1,15 +1,15 @@
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (defvar *environment*)
 
 (defun ceval (form)
-  (cvm.compile:eval form *environment* m:*client*))
+  (maclina.compile:eval form *environment* m:*client*))
 
 (defun ccompile (name definition)
   (declare (ignore name))
   (etypecase definition
     ((cons (eql lambda))
-     (cvm.compile:compile definition *environment*))
+     (maclina.compile:compile definition *environment*))
     ;; this happens in lambda.55,56
     (function definition)))
 
@@ -29,10 +29,10 @@
 
 (defun run (*environment* m:*client*)
   (let ((*default-pathname-defaults*
-	  (asdf:system-relative-pathname :cvm/test "test/sandbox/")))
-    (5am:run 'cvm)))
+	  (asdf:system-relative-pathname :maclina/test "test/sandbox/")))
+    (5am:run 'maclina)))
 
 (defun run! (*environment* m:*client*)
   (let ((*default-pathname-defaults*
-	  (asdf:system-relative-pathname :cvm/test "test/sandbox/")))
-    (5am:run! 'cvm)))
+	  (asdf:system-relative-pathname :maclina/test "test/sandbox/")))
+    (5am:run! 'maclina)))

@@ -3,7 +3,7 @@
 ;;;; Created:  Sat Jan  8 06:02:47 2005
 ;;;; Contains: Tests of LOCALLY
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite locally :in eval-and-compile)
 (5am:in-suite locally)

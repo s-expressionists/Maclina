@@ -1,6 +1,6 @@
-(in-package #:cvm.compile)
+(in-package #:maclina.compile)
 
-(setf (documentation (find-package "CVM.COMPILE") t)
+(setf (documentation (find-package "MACLINA.COMPILE") t)
       "Package for Lisp compiler and evaluator. Main entry points are COMPILE and EVAL."
       (documentation 'eval 'function)
       "As CL:EVAL. Evaluate FORM in the compilation ENVIRONMENT and the current dynamic environment."
@@ -8,7 +8,7 @@
       "Evaluate FORMS as a progn in the compilation ENVIRONMENT. This is provided as a convenience function, because it works regardless of how CL:PROGN is bound in ENVIRONMENT, if at all."
       (documentation 'compile 'function)
       "Compile LAMBDA-EXPRESSION into a function in the compilation ENVIRONMENT.
-Returns three values: FUNCTION, WARNINGSP, FAILUREP, which are the same as those of CL:COMPILE. FUNCTION may or may not be considered a COMPILED-FUNCTION by the host - this is out of CVM's control.
+Returns three values: FUNCTION, WARNINGSP, FAILUREP, which are the same as those of CL:COMPILE. FUNCTION may or may not be considered a COMPILED-FUNCTION by the host - this is out of Maclina's control.
 Unlike CL:COMPILE, COMPILE does not accept a function name, and does not alter bindings to install the newly compiled function."
       (documentation 'macroexpand-1 'function)
       "As CL:MACROEXPAND-1. Uses Trucler to interrogate for macro definitions, so it is (probably) more flexible than the host function."
@@ -64,7 +64,7 @@ COnditions may be handled from outside the body of WITH-COMPILATION-RESULTS. Han
       (documentation 'with-compilation-unit 'function)
       "As CL:WITH-COMPILATION-UNIT. Evaluate BODY as a progn and return its values. Within the dynamic environment of WITH-COMPILATION-UNIT, actions deferred by the compiler until the end of compilation will be deferred to the end of the outermost WITH-COMPILATION-FORM (or the innermost with :override true).
 On exit, this outermost WITH-COMPILATION-FORM will print to *ERROR-OUTPUT* a summary of conditions signaled during evaluation, if there were any.
-For now in CVM, these actions are only signaling certain kinds of warnings relating to unknown names."
+For now in Maclina, these actions are only signaling certain kinds of warnings relating to unknown names."
       (documentation 'run-time-environment 'function)
       "The compiler calls this function to get the run time environment for a given compilation environment. Clients should customize it in accordance with their environments' structures."
       (documentation 'resolve-reference 'function)

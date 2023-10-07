@@ -2,12 +2,12 @@
 ;;; You can also use it yourself: just load this file. SBCL will quit
 ;;; with exit status based on whether everything passed.
 
-(ql:quickload '(:cvm/test :cvm/vm-native))
+(ql:quickload '(:maclina/test :maclina/vm-native))
 
-(defpackage #:cvm.test.script
+(defpackage #:maclina.test.script
   (:use #:cl))
 
-(in-package #:cvm.test.script)
+(in-package #:maclina.test.script)
 
 ;;; from ANSI tests
 (defun exit (successp &aux (code (if successp 0 1)))
@@ -26,8 +26,8 @@
   #+sbcl (sb-ext:exit :code code))
 
 (defun test ()
-  (cvm.vm-native:initialize-vm 20000)
+  (maclina.vm-native:initialize-vm 20000)
   ;; won't work outside SBCL
-  (exit (cvm.test:run-native! (make-instance 'trucler-native-sbcl:client))))
+  (exit (maclina.test:run-native! (make-instance 'trucler-native-sbcl:client))))
 
 (test)

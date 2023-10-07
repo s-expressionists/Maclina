@@ -1,4 +1,4 @@
-(in-package #:cvm.compile-file)
+(in-package #:maclina.compile-file)
 
 ;;; Hooking up Eclector.
 ;;; Using Eclector means we don't need to worry about implementation-dependent

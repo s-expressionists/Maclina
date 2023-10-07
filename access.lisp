@@ -1,4 +1,4 @@
-(in-package #:cvm.machine)
+(in-package #:maclina.machine)
 
 ;;; Some basic functions for getting at parts of the VM state.
 

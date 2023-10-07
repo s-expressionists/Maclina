@@ -1,4 +1,4 @@
-(in-package #:cvm.machine)
+(in-package #:maclina.machine)
 
 (defun dis-signed (x size)
   (logior x (- (mask-field (byte 1 (1- size)) x))))

@@ -6,7 +6,7 @@
 ;;; The following test was suggested by Sam Steingold,
 ;;; so I've created this file to hold it.
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite eval-when :in eval-and-compile)
 (5am:in-suite eval-when)

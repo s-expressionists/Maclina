@@ -1,4 +1,4 @@
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite externalize :in fasl)
 (5am:in-suite externalize)
@@ -51,7 +51,7 @@
                        (lambda (c)
                          (declare (ignore c))
                          (setq signaled-failure-p t))))
-        (apply #'cvm.compile-file:compile-file input-file keys)))))
+        (apply #'maclina.compile-file:compile-file input-file keys)))))
 
 (defun compile-externalization-test-file (object)
   (with-open-file (s "externalization-test-file.lisp"
@@ -69,8 +69,8 @@
   (let* ((load-env (make-clean-load-environment))
          (load-rte
            (clostrum:evaluation-environment m:*client* load-env)))
-    (cvm.load:load-bytecode filename :environment load-rte)
-    (cvm.compile:eval '*compiled* load-env)))
+    (maclina.load:load-bytecode filename :environment load-rte)
+    (maclina.compile:eval '*compiled* load-env)))
 
 (defun test-externalize (object)
   (let* ((output (compile-externalization-test-file object))

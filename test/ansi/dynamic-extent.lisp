@@ -3,7 +3,7 @@
 ;;;; Created:  Sat May 21 09:10:52 2005
 ;;;; Contains: Tests of DYNAMIC-EXTENT
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite dynamic-extent :in eval-and-compile)
 (5am:in-suite dynamic-extent)

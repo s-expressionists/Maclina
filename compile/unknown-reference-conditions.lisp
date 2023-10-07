@@ -1,4 +1,4 @@
-(in-package #:cvm.compile)
+(in-package #:maclina.compile)
 
 (define-condition unknown-reference (condition)
   ((%name :initarg :name :reader name))

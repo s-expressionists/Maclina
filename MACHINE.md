@@ -1,4 +1,4 @@
-This file defines the virtual machine used by CVM, as implemented in vm-native.lisp and vm-cross.lisp.
+This file defines the virtual machine used by Maclina, as implemented in vm-native.lisp and vm-cross.lisp.
 
 The virtual machine executes a bytecode. Each instruction is encoded as a one byte opcode followed by a fixed number of operands. All operands are one byte unless the `long` opcode described below is used.
 
@@ -10,7 +10,7 @@ Bytecode is organized into modules. A module contains the bytecode for one or mo
 
 Function cells and variable cells are implementation-defined objects that represent global bindings in some environment. A function or variable cell has an associated name; when the value bound to that environment's function or variable binding (respectively) of that name changes, or when the binding is made unbound, the cell reflects the change. When a bytecode module is loaded, the loader defines what environment it is loading into, and all function cells and variable cells are for bindings in this one environment.
 
-Bytecode functions can be either closures or "templates". A closure is made up of a "template" and a closure vector. CVM uses flat closures, so closures do not need to maintain a chain of environments. Each element of the closure vector is either a value or a _cell_ (distinct from function and variable cells). A cell is an object that holds a value and may have that value changed; cells are used when a function can mutate lexical variables within another closure.
+Bytecode functions can be either closures or "templates". A closure is made up of a "template" and a closure vector. Maclina uses flat closures, so closures do not need to maintain a chain of environments. Each element of the closure vector is either a value or a _cell_ (distinct from function and variable cells). A cell is an object that holds a value and may have that value changed; cells are used when a function can mutate lexical variables within another closure.
 
 All other information about a function is part of the template. Bytecode function templates contain the following information:
 

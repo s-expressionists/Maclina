@@ -3,7 +3,7 @@
 ;;;; Created:  Sat May 21 07:59:24 2005
 ;;;; Contains: Tests of the IGNORE declarations
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite ignore :in eval-and-compile)
 (5am:in-suite ignore)

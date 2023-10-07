@@ -1,11 +1,11 @@
-(defpackage #:cvm.vm-native
+(defpackage #:maclina.vm-native
   (:use #:cl)
-  (:local-nicknames (#:m #:cvm.machine)
-                    (#:arg #:cvm.argparse))
+  (:local-nicknames (#:m #:maclina.machine)
+                    (#:arg #:maclina.argparse))
   (:export #:initialize-vm)
   (:export #:*trace*))
 
-(in-package #:cvm.vm-native)
+(in-package #:maclina.vm-native)
 
 (defstruct vm
   (values nil :type list)
@@ -78,7 +78,7 @@
 (defun instruction-trace (bytecode literals stack ip bp sp frame-size)
   (fresh-line *trace-output*)
   (let ((*standard-output* *trace-output*))
-    (cvm.machine:display-instruction bytecode literals ip))
+    (maclina.machine:display-instruction bytecode literals ip))
   (let ((frame-end (+ bp frame-size)))
     (format *trace-output* " ; bp ~d sp ~d locals ~s stack ~s~%"
             bp sp (subseq stack bp frame-end)

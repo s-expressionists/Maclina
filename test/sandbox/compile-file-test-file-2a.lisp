@@ -1,4 +1,4 @@
-(s:in-package "CVM.TEST")
+(s:in-package "MACLINA.TEST")
 
 (s:defun compile-file-test-fun.2a () nil)
 

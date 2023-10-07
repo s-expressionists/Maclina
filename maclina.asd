@@ -1,16 +1,16 @@
-(asdf:defsystem #:cvm
-  :description "Reference implementation of the CVM bytecode system."
+(asdf:defsystem #:maclina
+  :description "Reference implementation of the Maclina bytecode system."
   :author ("Charles Zhang"
            "Christian Schafmeister <chris.schaf@verizon.net>"
            "Tarn W. Burton <twburton@gmail.com>"
            "Bike <aeshtaer@gmail.com>")
   :maintainer "Bike <aeshtaer@gmail.com>"
   :version "0.5.0"
-  :depends-on (:cvm/base :cvm/compile :cvm/compile-file :cvm/load
-               :cvm/vm-native :cvm/vm-cross))
+  :depends-on (:maclina/base :maclina/compile :maclina/compile-file :maclina/load
+               :maclina/vm-native :maclina/vm-cross))
 
-(asdf:defsystem #:cvm/base
-  :description "Basic components of the CVM bytecode system."
+(asdf:defsystem #:maclina/base
+  :description "Basic components of the Maclina bytecode system."
   :author ("Charles Zhang"
            "Christian Schafmeister <chris.schaf@verizon.net>"
            "Bike <aeshtaer@gmail.com>")
@@ -24,12 +24,12 @@
                (:file "access" :depends-on ("machine"))
                (:file "disassemble" :depends-on ("structures" "machine"))))
 
-(asdf:defsystem #:cvm/compile
-  :description "Reference implementation compiler for CVM."
+(asdf:defsystem #:maclina/compile
+  :description "Reference implementation compiler for Maclina."
   :author ("Charles Zhang"
            "Bike <aeshtaer@gmail.com>")
   :maintainer "Bike <aeshtaer@gmail.com>"
-  :depends-on (:cvm/base :alexandria :trucler :ecclesia)
+  :depends-on (:maclina/base :alexandria :trucler :ecclesia)
   :components
   ((:module "compile"
     :components ((:file "package")
@@ -45,11 +45,11 @@
                                                "package"))
                  (:file "documentation" :depends-on ("compile"))))))
 
-(asdf:defsystem #:cvm/compile-file
-  :description "Reference implementation file compiler for CVM."
+(asdf:defsystem #:maclina/compile-file
+  :description "Reference implementation file compiler for Maclina."
   :author ("Tarn W. Burton <twburton@gmail.com>"
            "Bike <aeshtaer@gmail.com>")
-  :depends-on (:cvm/compile :eclector :ieee-floats)
+  :depends-on (:maclina/compile :eclector :ieee-floats)
   :components
   ((:module "compile-file"
     :components ((:file "package")
@@ -63,33 +63,33 @@
                                       "encode" "package"))
                  (:file "documentation" :depends-on ("compile-file"))))))
 
-(asdf:defsystem #:cvm/load
-  :description "Reference implementation FASL loader for CVM."
+(asdf:defsystem #:maclina/load
+  :description "Reference implementation FASL loader for Maclina."
   :author ("Tarn W. Burton <twburton@gmail.com>"
            "Bike <aeshtaer@gmail.com>")
-  :depends-on (:cvm/base :ieee-floats)
+  :depends-on (:maclina/base :ieee-floats)
   :components ((:file "loadltv")))
 
-(asdf:defsystem #:cvm/vm-native
-  :description "CVM VM implementation using host environment."
+(asdf:defsystem #:maclina/vm-native
+  :description "Maclina VM implementation using host environment."
   :author ("Charles Zhang"
            "Bike <aeshtaer@gmail.com>")
   :maintainer "Bike <aeshtaer@gmail.com>"
-  :depends-on (:cvm/base :trucler) ; trucler only needed for client class - remove?
+  :depends-on (:maclina/base :trucler) ; trucler only needed for client class - remove?
   :components ((:file "vm-native")))
 
-(asdf:defsystem #:cvm/vm-cross
-  :description "CVM VM implementation using Clostrum environment."
+(asdf:defsystem #:maclina/vm-cross
+  :description "Maclina VM implementation using Clostrum environment."
   :author ("Charles Zhang"
            "Bike <aeshtaer@gmail.com>")
   :maintainer "Bike <aeshtaer@gmail.com>"
-  :depends-on (:cvm/base :clostrum :clostrum-trucler)
+  :depends-on (:maclina/base :clostrum :clostrum-trucler)
   :components ((:file "vm-cross")))
 
-(asdf:defsystem #:cvm/test
+(asdf:defsystem #:maclina/test
   :author ("Bike <aeshtaer@gmail.com>")
   :maintainer "Bike <aeshtaer@gmail.com>"
-  :depends-on (:cvm :clostrum-basic :fiveam)
+  :depends-on (:maclina :clostrum-basic :fiveam)
   :components
   ((:module "test"
     :components ((:file "packages")

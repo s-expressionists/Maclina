@@ -1,4 +1,4 @@
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite unknown-reference-conditions :in compiler-conditions)
 (5am:in-suite unknown-reference-conditions)
@@ -8,7 +8,7 @@
         warning)
     (multiple-value-bind (fun warningsp failurep)
         (handler-bind
-            ((cvm.compile:unknown-variable
+            ((maclina.compile:unknown-variable
                (lambda (w)
                  (setq warning w)
                  ;; Make sure we still fail with a MUFFLE-WARNING.
@@ -17,7 +17,7 @@
       (5am:is-true warningsp "COMPILE did not report a warning")
       (5am:is-true failurep "COMPILE did not fail")
       (5am:is-true warning "COMPILE did not signal a warning")
-      (5am:is (eql var (cvm.compile:name warning))
+      (5am:is (eql var (maclina.compile:name warning))
               "COMPILE's warning did not have the correct name")
       (5am:signals unbound-variable (funcall fun))
       ;; Now make sure it was assumed to be a special variable.
@@ -34,13 +34,13 @@
         warning)
     (multiple-value-bind (fun warningsp failurep)
         (handler-bind
-            ((cvm.compile:unknown-variable
+            ((maclina.compile:unknown-variable
                (lambda (w) (setq warning w) (muffle-warning w))))
           (ccompile nil `(lambda (val) (setq ,var val))))
       (5am:is-true warningsp "COMPILE did not report a warning")
       (5am:is-true failurep "COMPILE did not fail")
       (5am:is-true warning "COMPILE did not signal a warning")
-      (5am:is (eql var (cvm.compile:name warning))
+      (5am:is (eql var (maclina.compile:name warning))
               "COMPILE's warning did not have the correct name")
       (handler-case
           (let ((val (ceval `(let ((,var 71))
@@ -55,13 +55,13 @@
   (let ((fname (make-symbol "UNKNOWN-FUNCTION")) warning)
     (multiple-value-bind (fun warningsp failurep)
         (handler-bind
-            ((cvm.compile:unknown-function
+            ((maclina.compile:unknown-function
                (lambda (w) (setq warning w) (muffle-warning w))))
           (ccompile nil `(lambda () (,fname))))
       (5am:is-true warningsp "COMPILE did not report a warning")
       (5am:is-false failurep "COMPILE failed")
       (5am:is-true warning "COMPILE did not signal a warning")
-      (5am:is (eql fname (cvm.compile:name warning))
+      (5am:is (eql fname (maclina.compile:name warning))
               "COMPILE's warning did not have the correct name")
       (5am:signals undefined-function (funcall fun)))))
 
@@ -69,25 +69,25 @@
   (let ((warning nil))
     (handler-bind
         ((warning (lambda (w) (setq warning w))))
-      (cvm.compile:with-compilation-unit (:override t)
+      (maclina.compile:with-compilation-unit (:override t)
         (let ((fname (make-symbol "UNKNOWN-FUNCTION")))
           (multiple-value-bind (_ warningsp failurep)
               (ccompile nil `(lambda () (,fname)))
             (declare (ignore _))
             (5am:is-false warningsp "COMPILE reported warning too early")
             (5am:is-false failurep "COMPILE reported failure too early"))
-          (signal 'cvm.compile:resolve-function :name fname))))
+          (signal 'maclina.compile:resolve-function :name fname))))
     (5am:is-false warning
                   "Unknown function resolution failed: ~s signaled" warning)))
 
 (5am:test resolve-unknown-macro
   (5am:signals
-      cvm.compile:assumed-function-now-macro
-      (cvm.compile:with-compilation-unit (:override t)
+      maclina.compile:assumed-function-now-macro
+      (maclina.compile:with-compilation-unit (:override t)
         (let ((mname (make-symbol "UNKNOWN-MACRO")))
           (multiple-value-bind (_ warningsp failurep)
               (ccompile nil `(lambda () (,mname)))
             (declare (ignore _))
             (5am:is-false warningsp "COMPILE reported warning too early")
             (5am:is-false failurep "COMPILE reported failure too early"))
-          (signal 'cvm.compile:resolve-macro :name mname)))))
+          (signal 'maclina.compile:resolve-macro :name mname)))))

@@ -3,7 +3,7 @@
 ;;;; Created:  Thu Oct 10 20:54:20 2002
 ;;;; Contains: Tests for COMPILE, COMPILED-FUNCTION-P, COMPILED-FUNCTION
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite compile :in eval-and-compile)
 (5am:in-suite compile)

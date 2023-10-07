@@ -40,7 +40,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        path: cvm
+        path: maclina
 
 # Clostrum is not in Quicklisp as of now, so get it from github.
 
@@ -53,14 +53,14 @@ jobs:
     - name: Configure ASDF to find everything
       run: |
         mkdir -p $HOME/.config/common-lisp/source-registry.conf.d
-        echo "(:TREE #P\"${{ github.workspace }}/\")" > $HOME/.config/common-lisp/source-registry.conf.d/cvm.conf
+        echo "(:TREE #P\"${{ github.workspace }}/\")" > $HOME/.config/common-lisp/source-registry.conf.d/maclina.conf
 
     - name: Run native client tests
       if: matrix.mode == 'native'
       run: |
-        sbcl --non-interactive --load "${{ github.workspace }}/cvm/test/script.lisp"
+        sbcl --non-interactive --load "${{ github.workspace }}/maclina/test/script.lisp"
 
     - name: Run cross client tests
       if: matrix.mode == 'cross'
       run: |
-        sbcl --non-interactive --load "${{ github.workspace }}/cvm/test/cross/script.lisp"
+        sbcl --non-interactive --load "${{ github.workspace }}/maclina/test/cross/script.lisp"

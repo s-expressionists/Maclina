@@ -1,4 +1,4 @@
-(defpackage #:cvm.machine
+(defpackage #:maclina.machine
   (:use #:cl)
   (:shadow #:return #:throw #:symbol-value #:progv #:fdefinition #:nil #:eq
            #:set #:push #:pop)
@@ -23,7 +23,7 @@
 
 ;;;; Definition of the virtual machine, used by both the compiler and the VM.
 
-(in-package #:cvm.machine)
+(in-package #:maclina.machine)
 
 (defconstant +mask-arg+     #b011000)
 (defconstant +constant-arg+ #b001000)

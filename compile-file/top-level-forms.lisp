@@ -1,4 +1,4 @@
-(in-package #:cvm.compile-file)
+(in-package #:maclina.compile-file)
 
 ;;; COMPILE-TOPLEVEL will process a toplevel form in an environment.
 ;;; It uses CMP:EVAL to carry out compile time evaluations.

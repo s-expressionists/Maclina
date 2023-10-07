@@ -3,7 +3,7 @@
 ;;;; Created:  Sat Oct 12 10:00:50 2002
 ;;;; Contains: Tests for PROGV
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite progv :in data-and-control-flow)
 (5am:in-suite progv)

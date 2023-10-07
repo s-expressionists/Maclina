@@ -1,1 +1,1 @@
-(cvm.test.sham:defun compile-file-test-fun.3 () nil)
+(maclina.test.sham:defun compile-file-test-fun.3 () nil)

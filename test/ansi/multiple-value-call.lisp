@@ -3,7 +3,7 @@
 ;;;; Created:  Fri Oct 18 23:35:07 2002
 ;;;; Contains: Tests of MULTIPLE-VALUE-CALL, MULTIPLE-VALUE-LIST
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite multiple-value-call :in data-and-control-flow)
 (5am:in-suite multiple-value-call)

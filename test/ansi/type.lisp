@@ -3,7 +3,7 @@
 ;;;; Created:  Sun May 29 08:25:46 2005
 ;;;; Contains: Tests of TYPE declarations
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite type :in eval-and-compile)
 (5am:in-suite type)

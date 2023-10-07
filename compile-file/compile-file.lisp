@@ -1,4 +1,4 @@
-(in-package #:cvm.compile-file)
+(in-package #:maclina.compile-file)
 
 ;;; Main external entry points: COMPILE-STREAM and COMPILE-FILE.
 

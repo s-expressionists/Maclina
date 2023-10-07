@@ -3,7 +3,7 @@
 ;;;; Created:  Sat Oct 19 06:48:02 2002
 ;;;; Contains: Tests for MULTIPLE-VALUE-PROG1
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite multiple-value-prog1 :in data-and-control-flow)
 (5am:in-suite multiple-value-prog1)

@@ -3,14 +3,14 @@
 ;;;; Created:  Wed Oct  9 19:41:24 2002
 ;;;; Contains: Tests of MACROLET
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite macrolet :in data-and-control-flow)
 (5am:in-suite macrolet)
 
 ;;;; WARNING: Do not use backquote in any code that will be passed
-;;;; to CVM. It is read implementation-specifically, and these tests
-;;;; are designed to run in limited first-class environments.
+;;;; to Maclina. It is read implementation-specifically, and these
+;;;; tests are designed to run in limited first-class environments.
 
 (deftest macrolet.1
   (let ((z (list 3 4)))

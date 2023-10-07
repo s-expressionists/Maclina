@@ -1,14 +1,14 @@
-(defpackage #:cvm.vm-cross
+(defpackage #:maclina.vm-cross
   (:use #:cl)
-  (:local-nicknames (#:m #:cvm.machine)
-                    (#:arg #:cvm.argparse)
-                    (#:cmp #:cvm.compile))
+  (:local-nicknames (#:m #:maclina.machine)
+                    (#:arg #:maclina.argparse)
+                    (#:cmp #:maclina.compile))
   (:export #:client)
   (:export #:initialize-vm)
   (:export #:*trace*)
   (:export #:make-variable-access-closures))
 
-(in-package #:cvm.vm-cross)
+(in-package #:maclina.vm-cross)
 
 (defclass client () ())
 
@@ -239,7 +239,7 @@
 (defun instruction-trace (bytecode literals stack ip bp sp frame-size)
   (fresh-line *trace-output*)
   (let ((*standard-output* *trace-output*))
-    (cvm.machine:display-instruction bytecode literals ip))
+    (maclina.machine:display-instruction bytecode literals ip))
   (let ((frame-end (+ bp frame-size)))
     (format *trace-output* " ; bp ~d sp ~d locals ~s stack ~s~%"
             bp sp (subseq stack bp frame-end)

@@ -2,12 +2,12 @@
 ;;; You can also use it yourself: just load this file. SBCL will quit
 ;;; with exit status based on whether everything passed.
 
-(ql:quickload '(:cvm/test))
+(ql:quickload '(:maclina/test))
 
-(defpackage #:cvm.test.script
+(defpackage #:maclina.test.script
   (:use #:cl))
 
-(in-package #:cvm.test.script)
+(in-package #:maclina.test.script)
 
 ;;; from ANSI tests
 (defun exit (successp &aux (code (if successp 0 1)))
@@ -26,7 +26,7 @@
   #+sbcl (sb-ext:exit :code code))
 
 (defun test ()
-  (cvm.vm-cross:initialize-vm 20000 cvm.test.cross:*client*)
-  (exit (cvm.test:run-cross!)))
+  (maclina.vm-cross:initialize-vm 20000 maclina.test.cross:*client*)
+  (exit (maclina.test:run-cross!)))
 
 (test)

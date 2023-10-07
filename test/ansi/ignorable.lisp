@@ -3,7 +3,7 @@
 ;;;; Created:  Sat May 21 08:16:27 2005
 ;;;; Contains: Tests of the IGNORABLE declaration
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite ignorable :in eval-and-compile)
 (5am:in-suite ignorable)

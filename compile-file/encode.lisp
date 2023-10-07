@@ -1,4 +1,4 @@
-(in-package #:cvm.compile-file)
+(in-package #:maclina.compile-file)
 
 ;;; WRITE-BYTECODE will, given a list of instructions and a stream, write out
 ;;; the entire FASL.

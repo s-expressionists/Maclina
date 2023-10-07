@@ -1,3 +1,3 @@
-This system runs the cvm/test tests with the cross VM. It has its own client, mostly to handle keywords, but you can use any environment as long as it works with Clostrum.
+This system runs the maclina/test tests with the cross VM. It has its own client, mostly to handle keywords, but you can use any environment as long as it works with Clostrum.
 
 The environment must have a certain small subset of the CL symbols bound appropriately, along with a few extras. FILL-ENVIRONMENT will define these for you, given an environment.

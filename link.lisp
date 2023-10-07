@@ -1,4 +1,4 @@
-(in-package #:cvm.machine)
+(in-package #:maclina.machine)
 
 ;;; Retrieve information from an environment based on a name.
 ;;; These are used both by the evaluator/compiler (compile.lisp)

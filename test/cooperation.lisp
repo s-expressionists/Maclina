@@ -1,12 +1,12 @@
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 ;;;; Tests that the cross VM plays well with host code.
 
-(5am:def-suite cooperation :in cvm-cross)
+(5am:def-suite cooperation :in maclina-cross)
 (5am:in-suite cooperation)
 
 (5am:test return-through-unbind
-  (let ((rte (cvm.compile:run-time-environment m:*client* *environment*)))
+  (let ((rte (maclina.compile:run-time-environment m:*client* *environment*)))
     (m:progv m:*client* rte '(x) '(:good)
       ;; Return to a native block through a VM binding.
       (flet ((outer (inner)

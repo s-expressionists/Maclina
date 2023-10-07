@@ -3,7 +3,7 @@
 ;;;; Created:  Tue Feb 24 20:22:23 2004
 ;;;; Contains: Tests of RETURN-FROM
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite return-from :in data-and-control-flow)
 (5am:in-suite return-from)

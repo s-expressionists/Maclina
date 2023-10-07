@@ -1,7 +1,7 @@
-(defpackage #:cvm.compile
+(defpackage #:maclina.compile
   (:use #:cl)
-  (:local-nicknames (#:m #:cvm.machine)
-                    (#:arg #:cvm.argparse))
+  (:local-nicknames (#:m #:maclina.machine)
+                    (#:arg #:maclina.argparse))
   (:shadow #:compile #:eval #:constantp #:macroexpand-1 #:macroexpand
            #:with-compilation-unit)
   (:export #:compile-into #:compile #:eval #:eval-progn)

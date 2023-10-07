@@ -3,7 +3,7 @@
 ;;;; Created:  Sat Oct 12 13:04:02 2002
 ;;;; Contains: Tests of CATCH and THROW
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite catch :in data-and-control-flow)
 (5am:in-suite catch)

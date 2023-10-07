@@ -3,7 +3,7 @@
 ;;;; Created:  Wed Nov 27 06:43:21 2002
 ;;;; Contains: Tests of LAMBDA forms
 
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 (5am:def-suite lambda :in eval-and-compile)
 (5am:in-suite lambda)

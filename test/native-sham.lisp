@@ -1,4 +1,4 @@
-(in-package #:cvm.test)
+(in-package #:maclina.test)
 
 ;;;; KLUDGE TIME
 ;;;; In an ideal world, all Lisp implementations would support
@@ -24,8 +24,8 @@
 ;;; Force true values to T.
 (defun s:notnot (v) (not (not v)))
 
-(setf (fdefinition 's:macroexpand-1) #'cvm.compile:macroexpand-1
-      (fdefinition 's:macroexpand)   #'cvm.compile:macroexpand)
+(setf (fdefinition 's:macroexpand-1) #'maclina.compile:macroexpand-1
+      (fdefinition 's:macroexpand)   #'maclina.compile:macroexpand)
 
 ;;; used in e.g. MACROLET.43
 (setf (fdefinition 's:eval) #'ceval)
