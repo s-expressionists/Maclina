@@ -1770,6 +1770,22 @@
           (setq env (add-specials (list supplied-var) env)))
         (values env context)))))
 
+;;; Given a lambda list, compute a suitable name for an otherwise
+;;; anonymous function. The name will be (lambda lambda-list), but with
+;;; extraneous parts of the lambda list removed (default parameters, etc.)
+;;; This means we parse the lambda list twice, which is a bit inefficient.
+(defun compute-lambda-name (lambda-list)
+  (multiple-value-bind (required optional rest keys aok-p aux key-p)
+      (alexandria:parse-ordinary-lambda-list lambda-list)
+    (declare (ignore aux))
+    `(lambda (,@required
+              ,@(when optional '(&optional))
+              ,@(mapcar #'first optional)
+              ,@(when rest `(&rest ,rest))
+              ,@(when key-p '(&key))
+              ,@(mapcar #'caar keys)
+              ,@(when aok-p '(&allow-other-keys))))))
+
 ;;; Compile the lambda in MODULE, returning the resulting
 ;;; CFUNCTION.
 ;;; If BLOCK-NAME is provided, a block with the given name will be provided
@@ -1784,7 +1800,7 @@
 ;;; only, e.g. for printing and not for binding.
 (defun compile-lambda (lambda-list body env module
                        &rest keys
-                       &key name block-name
+                       &key (name nil namep) block-name
                          (declarations nil declsp) docstring)
   (declare (ignore block-name))
   (when declsp
@@ -1793,7 +1809,10 @@
       (if declsp
           (values body declarations docstring)
           (alexandria:parse-body body :documentation t))
-    (let* ((function
+    (let* ((name (if namep
+                     name
+                     (compute-lambda-name lambda-list)))
+           (function
              (make-cfunction module
                              :name name :lambda-list lambda-list :doc doc))
            (context (make-context :receiving t :function function))
