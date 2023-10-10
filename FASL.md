@@ -38,7 +38,7 @@ After the last instruction is executed, the FASL has been fully loaded. Any rema
 
 ## 0.12
 
-* `mv-call[-receive-{one,fixed}] semantics changed so that arguments are on stack rather than values vector.
+* `mv-call[-receive-{one,fixed}]` semantics changed so that arguments are on stack rather than values vector.
 * `called-fdefinition` instruction added for microoptimized function lookup.
 * `fdesignator` instruction added so that `multiple-value-call` can be compiled without other environment support. (NOTE: The 0.12 version of this instruction does not have an environment parameter. The 0.12 version was only used in Clasp and is not represented in this repository's history.)
 
