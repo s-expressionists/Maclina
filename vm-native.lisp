@@ -544,3 +544,7 @@
 (defmethod m:fmakunbound ((client trucler-native:client) env name)
   (declare (ignore env))
   (fmakunbound name))
+
+(defmethod m:multiple-values-limit ((client trucler-native:client))
+  ;; we use host values, therefore
+  multiple-values-limit)

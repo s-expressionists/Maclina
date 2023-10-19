@@ -708,3 +708,7 @@
   (setf (clostrum:fdefinition client env name) new))
 (defmethod m:fmakunbound ((client client) env name)
   (clostrum:fmakunbound client env name))
+
+(defmethod m:multiple-values-limit ((client trucler-native:client))
+  ;; we use host values, therefore
+  multiple-values-limit)

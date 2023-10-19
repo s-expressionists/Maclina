@@ -4,6 +4,8 @@
            #:set #:push #:pop)
   (:shadow #:disassemble)
   (:shadow #:boundp #:makunbound #:fboundp #:fmakunbound)
+  (:shadow #:lambda-parameters-limit #:call-arguments-limit
+           #:lambda-list-keywords #:multiple-values-limit)
   ;; Additional opname exports are done below.
   (:export #:*client*)
   (:export #:bytecode-module #:make-bytecode-module
@@ -19,6 +21,8 @@
   (:export #:link-function #:link-variable #:link-environment)
   (:export #:boundp #:makunbound #:symbol-value #:call-with-progv #:progv
 	   #:fdefinition #:fmakunbound #:fboundp)
+  (:export #:lambda-parameters-limit #:call-arguments-limit
+           #:lambda-list-keywords #:multiple-values-limit)
   (:export #:disassemble #:display-instruction))
 
 ;;;; Definition of the virtual machine, used by both the compiler and the VM.
