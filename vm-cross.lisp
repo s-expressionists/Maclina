@@ -709,6 +709,6 @@
 (defmethod m:fmakunbound ((client client) env name)
   (clostrum:fmakunbound client env name))
 
-(defmethod m:multiple-values-limit ((client trucler-native:client))
+(defmethod m:multiple-values-limit ((client client))
   ;; we use host values, therefore
   multiple-values-limit)
