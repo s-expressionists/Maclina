@@ -124,10 +124,11 @@
 
 (defmethod clostrum-sys:variable-cell :around ((client client)
                                                environment symbol)
-  (let ((cell (call-next-method)))
-    (when (keywordp symbol)
-      (setf (clostrum-sys:variable-cell-value client cell) symbol))
-    cell))
+  (if (keywordp symbol)
+      (let ((cell (clostrum-sys:ensure-variable-cell client environment symbol)))
+        (setf (clostrum-sys:variable-cell-value client cell) symbol)
+        cell)
+      (call-next-method)))
 
 (defmethod clostrum-sys:variable-status :around ((client client)
                                                  environment symbol)

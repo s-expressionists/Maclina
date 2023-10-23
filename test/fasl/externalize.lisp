@@ -68,7 +68,7 @@
 (defun load-externalized-object (filename)
   (let* ((load-env (make-clean-load-environment))
          (load-rte
-           (clostrum:evaluation-environment m:*client* load-env)))
+           (maclina.compile:run-time-environment m:*client* load-env)))
     (maclina.load:load-bytecode filename :environment load-rte)
     (maclina.compile:eval '*compiled* load-env)))
 

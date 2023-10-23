@@ -12,14 +12,18 @@
 
 (defclass client () ())
 
-(defmethod cmp:run-time-environment ((client client) env)
-  (clostrum:evaluation-environment client env))
+(defmethod cmp:run-time-environment ((client client) (env clostrum:compilation-environment))
+  (loop while (typep env 'clostrum:compilation-environment)
+        do (setf env (clostrum:parent client env))
+        finally (return env)))
+(defmethod cmp:run-time-environment ((client client) (env clostrum:run-time-environment))
+  env)
 
 (defmethod m:link-function ((client client) env fname)
-  (clostrum-sys:operator-cell client env fname))
+  (clostrum:ensure-operator-cell client env fname))
 
 (defmethod m:link-variable ((client client) env name)
-  (cons name (clostrum-sys:variable-cell client env name)))
+  (cons name (clostrum:ensure-variable-cell client env name)))
 
 (defstruct vm
   (values nil :type list)
@@ -90,7 +94,7 @@
 (defun %progv (client env varnames values)
   (let* ((global-cells
            (loop for symbol in varnames
-                                   collect (clostrum-sys:variable-cell
+                                   collect (clostrum:ensure-variable-cell
                                             client env symbol)))
          (de (make-progv-dynenv global-cells values)))
     (push de (vm-dynenv-stack *vm*))))
@@ -673,7 +677,7 @@
 ;;; CL:BOUNDP, and CL:MAKUNBOUND.
 (defun make-variable-access-closures (client environment)
   (labels ((cell (symbol)
-             (clostrum-sys:variable-cell client environment symbol))
+             (clostrum:ensure-variable-cell client environment symbol))
            (#1=#:symbol-value (symbol)
              (%symbol-value symbol (cell symbol)))
            ((setf #1#) (value symbol)
@@ -685,15 +689,15 @@
     (values #'#1# #'(setf #1#) #'#2# #'#3#)))
 
 (defmethod m:symbol-value ((client client) env symbol)
-  (let ((cell (clostrum-sys:variable-cell client env symbol)))
+  (let ((cell (clostrum:ensure-variable-cell client env symbol)))
     (%symbol-value symbol cell)))
 (defmethod (setf m:symbol-value) (new (client client) env symbol)
-  (let ((cell (clostrum-sys:variable-cell client env symbol)))
+  (let ((cell (clostrum:ensure-variable-cell client env symbol)))
     (setf (%symbol-value symbol cell) new)))
 (defmethod m:boundp ((client client) env symbol)
-  (%boundp symbol (clostrum-sys:variable-cell client env symbol)))
+  (%boundp symbol (clostrum:ensure-variable-cell client env symbol)))
 (defmethod m:makunbound ((client client) env symbol)
-  (%makunbound symbol (clostrum-sys:variable-cell client env symbol)))
+  (%makunbound symbol (clostrum:ensure-variable-cell client env symbol)))
 
 (defmethod m:call-with-progv ((client client) env symbols values thunk)
   (%progv client env symbols values)
