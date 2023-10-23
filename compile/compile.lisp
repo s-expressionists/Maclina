@@ -512,6 +512,10 @@
 ;;; TODO: Once trucler actually implements augmentation we should
 ;;; maybe use that and not have our own environments at all.
 
+(defmethod trucler:global-environment (client (env lexical-environment))
+  (declare (ignore env))
+  (global-environment env))
+
 (defmethod trucler:describe-variable
     (client (env lexical-environment) name)
   (or (cdr (assoc name (vars env)))
