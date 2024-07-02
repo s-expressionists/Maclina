@@ -73,8 +73,8 @@
                    (cl:push name rev-codes)
                    (cl:push `(defconstant ,name ,code) rev-defconstants)))
                `(progn
-                  (defvar *full-codes* ',(reverse rev-fullcodes))
-                  (defvar *codes* ',(reverse rev-codes))
+                  (defparameter *full-codes* ',(reverse rev-fullcodes))
+                  (defparameter *codes* ',(reverse rev-codes))
                   (export '(,@rev-codes))
                   ,@rev-defconstants))))
   (defops
@@ -104,8 +104,8 @@
     (jump-if-8 23 ((label-arg 1)))
     (jump-if-16 24 ((label-arg 2)))
     (jump-if-24 25 ((label-arg 3)))
-    (jump-if-supplied-8 26 (1 (label-arg 1)))
-    (jump-if-supplied-16 27 (1 (label-arg 2)))
+    (jump-if-supplied-8 26 (1 (label-arg 1)) (2 (label-arg 1)))
+    (jump-if-supplied-16 27 (1 (label-arg 2)) (2 (label-arg 2)))
     (check-arg-count-<= 28 (1) (2))
     (check-arg-count->= 29 (1) (2))
     (check-arg-count-= 30 (1) (2))
