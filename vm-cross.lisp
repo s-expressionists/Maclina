@@ -1,6 +1,7 @@
 (defpackage #:maclina.vm-cross
   (:use #:cl)
   (:local-nicknames (#:m #:maclina.machine)
+                    (#:vm #:maclina.vm-shared)
                     (#:arg #:maclina.argparse)
                     (#:cmp #:maclina.compile))
   (:export #:client)
@@ -42,8 +43,7 @@
 (defvar *trace* nil)
 
 (defstruct (cell (:constructor make-cell (value))) value)
-(defstruct unbound-marker)
-(defvar *unbound* (make-unbound-marker))
+(defvar *unbound* (vm:make-unbound-marker))
 
 (defstruct dynenv)
 (defstruct (entry-dynenv (:include dynenv)
@@ -323,61 +323,10 @@
                  ((0) (call nargs))
                  (t (mapcar #'spush (subseq (multiple-value-list (call nargs))
                                             0 mvals)))))
-             (mv-call () (call (spop)))
-             (check-arg-count-<= (n)
-               (unless (<= (vm-arg-count vm) n)
-                 (error 'arg:wrong-number-of-arguments
-                        :given-nargs (vm-arg-count vm)
-                        :max-nargs n)))
-             (check-arg-count->= (n)
-               (unless (>= (vm-arg-count vm) n)
-                 (error 'arg:wrong-number-of-arguments
-                        :given-nargs (vm-arg-count vm)
-                        :min-nargs n)))
-             (check-arg-count-= (n)
-               (unless (= (vm-arg-count vm) n)
-                 (error 'arg:wrong-number-of-arguments
-                        :given-nargs (vm-arg-count vm)
-                        :min-nargs n :max-nargs n)))
-               (bind-required-args (nargs)
-                 ;; Use memcpy for this.
-                 (let* ((args (vm-args vm))
-                        (args-end (+ args nargs)))
-                   (do ((arg-index args (1+ arg-index))
-                        (frame-slot 0 (1+ frame-slot)))
-                       ((>= arg-index args-end))
-                     (setf (local frame-slot) (stack arg-index)))))
-               (bind-optional-args (required-count optional-count)
-                 (let* ((args (vm-args vm))
-                        (optional-start (+ args required-count))
-                        (args-end (+ args (vm-arg-count vm)))
-                        (end (+ optional-start optional-count))
-                        (optional-frame-offset required-count)
-                        (optional-frame-end (+ optional-frame-offset optional-count)))
-                   (if (<= args-end end)
-                       ;; Could be coded as memcpy in C.
-                       (do ((arg-index optional-start (1+ arg-index))
-                            (frame-slot optional-frame-offset (1+ frame-slot)))
-                           ((>= arg-index args-end)
-                            ;; memcpy or similar. (blit bit pattern?)
-                            (do ((frame-slot frame-slot (1+ frame-slot)))
-                                ((>= frame-slot optional-frame-end))
-                              (setf (local frame-slot) (make-unbound-marker))))
-                         (setf (local frame-slot) (stack arg-index)))
-                       ;; Could also be coded as memcpy.
-                       (do ((arg-index optional-start (1+ arg-index))
-                            (frame-slot optional-frame-offset (1+ frame-slot)))
-                           ((>= arg-index end))
-                         (setf (local frame-slot) (stack arg-index))))))
-               (listify-rest-args (nfixed)
-                 (setf (local nfixed)
-                       (loop for index from nfixed below (vm-arg-count vm)
-                             collect (stack (+ (vm-args vm) index))))))
+             (mv-call () (call (spop))))
       (declare (inline stack (setf stack) local (setf local) spush spop bind
                        code next-code next-long constant closure
-                       call mv-call check-arg-count-<=
-                       check-arg-count->= check-arg-count-=
-                       bind-required-args bind-optional-args listify-rest-args))
+                       call mv-call))
       (prog ((end (length bytecode))
              (trace *trace*)
              ;; KLUDGE: we can't use bp directly since catch uses eq.
@@ -456,65 +405,42 @@
                    ((#.m:jump-if-16) (incf ip (if (spop) (next-code-signed-16) 3)))
                    ((#.m:jump-if-24) (incf ip (if (spop) (next-code-signed-24) 4)))
                    ((#.m:check-arg-count-<=)
-                    (check-arg-count-<= (next-code)) (incf ip))
+                    (vm:check-arg-count-<= (vm-arg-count vm) (next-code))
+                    (incf ip))
                    ((#.m:check-arg-count->=)
-                    (check-arg-count->= (next-code)) (incf ip))
+                    (vm:check-arg-count->= (vm-arg-count vm) (next-code))
+                    (incf ip))
                    ((#.m:check-arg-count-=)
-                    (check-arg-count-= (next-code)) (incf ip))
+                    (vm:check-arg-count-= (vm-arg-count vm) (next-code))
+                    (incf ip))
                    ((#.m:jump-if-supplied-8)
-                    (incf ip (if (typep (local (next-code)) 'unbound-marker)
+                    (incf ip (if (typep (local (next-code)) 'vm:unbound-marker)
                                  2
                                  (1- (next-code-signed)))))
                    ((#.m:jump-if-supplied-16)
-                    (incf ip (if (typep (local (next-code)) 'unbound-marker)
+                    (incf ip (if (typep (local (next-code)) 'vm:unbound-marker)
                                  3
                                  (1- (next-code-signed-16)))))
                    ((#.m:bind-required-args)
-                    (bind-required-args (next-code)) (incf ip))
+                    (vm:bind-required-args (next-code) stack bp (vm-args vm))
+                    (incf ip))
                    ((#.m:bind-optional-args)
-                    (bind-optional-args (next-code) (next-code)) (incf ip))
+                    (vm:bind-optional-args (next-code) (next-code)
+                                           stack bp (vm-args vm) (vm-arg-count vm))
+                    (incf ip))
                    ((#.m:listify-rest-args)
-                    (listify-rest-args (next-code)) (incf ip))
+                    (vm:listify-rest-args
+                     (next-code) stack bp (vm-args vm) (vm-arg-count vm))
+                    (incf ip))
                    ((#.m:parse-key-args)
-                    (let* ((args (vm-args vm))
-                           (end (+ args (vm-arg-count vm)))
-                           (more-start (+ args (next-code)))
-                           (key-count-info (next-code))
-                           (key-count (logand key-count-info #x7f))
-                           (key-literal-start (next-code))
-                           (key-literal-end (+ key-literal-start key-count))
-                           (key-frame-start (next-code))
-                           (unknown-keys nil)
-                           (allow-other-keys-p nil))
-                      ;; Initialize all key values to #<unbound-marker>
-                      (loop for index from key-frame-start below (+ key-frame-start key-count)
-                            do (setf (local index) (make-unbound-marker)))
-                      (when (> end more-start)
-                        (do ((arg-index (- end 1) (- arg-index 2)))
-                            ((< arg-index more-start)
-                             (cond ((= arg-index (1- more-start)))
-                                   ((= arg-index (- more-start 2))
-                                    (error 'arg:odd-keywords))
-                                   (t
-                                    (error "BUG! This can't happen!"))))
-                          (let ((key (stack (1- arg-index))))
-                            (when (eq key :allow-other-keys)
-                              (setf allow-other-keys-p (stack arg-index)))
-                            (loop for key-index from key-literal-start
-                                    below key-literal-end
-                                  for offset of-type (unsigned-byte 16)
-                                  from key-frame-start
-                                  do (when (eq (constant key-index) key)
-                                       (setf (local offset) (stack arg-index))
-                                       (return))
-                                  finally (unless (or allow-other-keys-p
-                                                      (eq key :allow-other-keys))
-                                            (push key unknown-keys))))))
-                      (when (and (not (or (logbitp 7 key-count-info)
-                                          allow-other-keys-p))
-                                 unknown-keys)
-                        (error 'arg:unrecognized-keyword-argument
-                               :unrecognized-keywords unknown-keys)))
+                    (let ((nfixed (next-code)) (key-count-info (next-code))
+                          (key-literal-start (next-code))
+                          (key-frame-start (next-code)))
+                      (vm:parse-key-args
+                       nfixed
+                       (logand key-count-info #x7f) (logbitp 7 key-count-info)
+                       key-literal-start key-frame-start
+                       stack bp (vm-arg-count vm) (vm-args vm) constants))
                     (incf ip))
                    ((#.m:save-sp)
                     (setf (local (next-code)) sp)
@@ -667,63 +593,44 @@
                       (#.m:bind (bind (next-long) (next-long)) (incf ip))
                       (#.m:set (setf (local (next-long)) (spop)) (incf ip))
                       (#.m:bind-required-args
-                       (bind-required-args (next-long)) (incf ip))
+                       (vm:bind-required-args (next-long)
+                                              stack bp (vm-args vm))
+                       (incf ip))
                       (#.m:bind-optional-args
-                       (bind-optional-args (next-long) (next-long)) (incf ip))
+                       (vm:bind-optional-args
+                        (next-long) (next-long)
+                        stack bp (vm-args vm) (vm-arg-count vm))
+                       (incf ip))
                       (#.m:listify-rest-args
-                       (listify-rest-args (next-long)) (incf ip))
+                       (vm:listify-rest-args
+                        (next-long) stack bp (vm-args vm) (vm-arg-count vm))
+                       (incf ip))
                       (#.m:parse-key-args
-                       (let* ((args (vm-args vm))
-                              (end (+ args (vm-arg-count vm)))
-                              (more-start (+ args (next-long)))
-                              (key-count-info (next-long))
-                              (key-count (logand key-count-info #x7fff))
-                              (key-literal-start (next-long))
-                              (key-literal-end (+ key-literal-start key-count))
-                              (key-frame-start (next-long))
-                              (unknown-keys nil)
-                              (allow-other-keys-p nil))
-                         ;; Initialize all key values to #<unbound-marker>
-                         (loop for index from key-frame-start below (+ key-frame-start key-count)
-                               do (setf (local index) (make-unbound-marker)))
-                         (when (> end more-start)
-                           (do ((arg-index (- end 1) (- arg-index 2)))
-                               ((< arg-index more-start)
-                                (cond ((= arg-index (1- more-start)))
-                                      ((= arg-index (- more-start 2))
-                                       (error 'arg:odd-keywords))
-                                      (t
-                                       (error "BUG! This can't happen!"))))
-                             (let ((key (stack (1- arg-index))))
-                               (when (eq key :allow-other-keys)
-                                 (setf allow-other-keys-p (stack arg-index)))
-                               (loop for key-index from key-literal-start
-                                       below key-literal-end
-                                     for offset of-type (unsigned-byte 16)
-                                     from key-frame-start
-                                     do (when (eq (constant key-index) key)
-                                          (setf (local offset) (stack arg-index))
-                                          (return))
-                                     finally (unless (or allow-other-keys-p
-                                                         (eq key :allow-other-keys))
-                                               (push key unknown-keys))))))
-                         (when (and (not (or (logbitp 15 key-count-info)
-                                             allow-other-keys-p))
-                                    unknown-keys)
-                           (error 'arg:unrecognized-keyword-argument
-                                  :unrecognized-keywords unknown-keys))))
+                       (let ((nfixed (next-long)) (key-count-info (next-long))
+                             (key-literal-start (next-long))
+                             (key-frame-start (next-long)))
+                         (vm:parse-key-args
+                          nfixed
+                          (logand key-count-info #x7fff)
+                          (logbitp 15 key-count-info)
+                          key-literal-start key-frame-start
+                          stack bp (vm-arg-count vm) (vm-args vm) constants))
+                       (incf ip))
                       (#.m:check-arg-count-<=
-                       (check-arg-count-<= (next-long)) (incf ip))
+                       (vm:check-arg-count-<= (vm-arg-count vm) (next-long))
+                       (incf ip))
                       (#.m:check-arg-count->=
-                       (check-arg-count->= (next-long)) (incf ip))
+                       (vm:check-arg-count->= (vm-arg-count vm) (next-long))
+                       (incf ip))
                       (#.m:check-arg-count-=
-                       (check-arg-count-= (next-long)) (incf ip))
+                       (vm:check-arg-count-= (vm-arg-count vm) (next-long))
+                       (incf ip))
                       (#.m:jump-if-supplied-8
-                       (incf ip (if (typep (local (next-long)) 'unbound-marker)
+                       (incf ip (if (typep (local (next-long)) 'vm:unbound-marker)
                                     2
                                     (- (next-code-signed) 3))))
                       (#.m:jump-if-supplied-16
-                       (incf ip (if (typep (local (next-long)) 'unbound-marker)
+                       (incf ip (if (typep (local (next-long)) 'vm:unbound-marker)
                                     3
                                     (- (next-code-signed-16) 3))))
                       (otherwise
