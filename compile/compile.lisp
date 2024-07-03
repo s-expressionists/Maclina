@@ -395,19 +395,17 @@
 
 (defun emit-call (context count)
   (let ((receiving (context-receiving context)))
-    (cond ((or (eql receiving t) (eql receiving 0))
-           (assemble context m:call count))
-          ((eql receiving 1)
-           (assemble context m:call-receive-one count))
-          (t (assemble context m:call-receive-fixed count receiving)))))
+    (case receiving
+      ((t) (assemble context m:call count))
+      ((1) (assemble context m:call-receive-one count))
+      (t   (assemble context m:call-receive-fixed count receiving)))))
 
 (defun emit-mv-call (context)
   (let ((receiving (context-receiving context)))
-    (cond ((or (eql receiving t) (eql receiving 0))
-           (assemble context m:mv-call))
-          ((eql receiving 1)
-           (assemble context m:mv-call-receive-one))
-          (t (assemble context m:mv-call-receive-fixed receiving)))))
+    (case receiving
+      ((t) (assemble context m:mv-call))
+      ((1) (assemble context m:mv-call-receive-one))
+      (t   (assemble context m:mv-call-receive-fixed receiving)))))
 
 (defun emit-special-bind (context symbol)
   (assemble context m:special-bind (value-cell-index symbol context)))
