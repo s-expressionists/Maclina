@@ -109,6 +109,7 @@
                (local (index)
                  (svref stack (+ bp index)))
                ((setf local) (object index)
+                 (declare (type (unsigned-byte 16) index))
                  (setf (svref stack (+ bp index)) object))
                (spush (object)
                  (prog1 (setf (stack sp) object) (incf sp)))
@@ -161,7 +162,9 @@
                (mv-call () (call (spop))))
         (declare (inline stack (setf stack) spush spop bind
                          code next-code next-long constant closure
-                         call mv-call call-fixed))
+                         call mv-call call-fixed
+                         next-code-signed next-code-signed-16
+                         next-code-signed-24))
         (loop with end = (length bytecode)
               with trace = *trace*
               until (eql ip end)
@@ -407,7 +410,8 @@
                                  (m:make-bytecode-closure
                                   m:*client* template
                                   (coerce (gather envsize) 'simple-vector)))))
-                      (declare (type function cleanup-thunk))
+                      (declare (type (unsigned-byte 16) envsize)
+                               (type function cleanup-thunk))
                       (incf ip)
                       (unwind-protect
                            (vm bytecode closure constants frame-size)

@@ -254,7 +254,7 @@
   (declare (type (simple-array (unsigned-byte 8) (*)) bytecode)
            (type (simple-array t (*)) closure constants)
            (type (unsigned-byte 16) frame-size)
-           (optimize debug #+(or) speed))
+           (optimize speed))
   (let* ((vm *vm*)
          (stack (vm-stack vm))
          (ip (vm-pc vm))
@@ -274,6 +274,7 @@
              (local (index)
                (svref stack (+ bp index)))
              ((setf local) (object index)
+               (declare (type (unsigned-byte 16) index))
                (setf (svref stack (+ bp index)) object))
              (spush (object)
                (prog1 (setf (stack sp) object) (incf sp)))
@@ -326,7 +327,9 @@
              (mv-call () (call (spop))))
       (declare (inline stack (setf stack) local (setf local) spush spop bind
                        code next-code next-long constant closure
-                       call mv-call))
+                       call mv-call call-fixed
+                       next-code-signed next-code-signed-16
+                       next-code-signed-24))
       (prog ((end (length bytecode))
              (trace *trace*)
              ;; KLUDGE: we can't use bp directly since catch uses eq.
@@ -458,6 +461,7 @@
                            (dest-tag tag)
                            (tag (spop))
                            (de (make-catch-dynenv tag dest-tag target)))
+                      (declare (type (and unsigned-byte fixnum) target))
                       (push de (vm-dynenv-stack vm))
                       (incf ip 2)))
                    ((#.m:catch-16)
@@ -465,6 +469,7 @@
                            (dest-tag tag)
                            (tag (spop))
                            (de (make-catch-dynenv tag dest-tag target)))
+                      (declare (type (and unsigned-byte fixnum) target))
                       (push de (vm-dynenv-stack vm))
                       (incf ip 3)))
                    ((#.m:throw) (throw-to vm (spop)))
