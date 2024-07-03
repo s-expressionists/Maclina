@@ -79,6 +79,7 @@
   (fresh-line *trace-output*)
   (let ((*standard-output* *trace-output*))
     (maclina.machine:display-instruction bytecode literals ip))
+  #+(or)
   (let ((frame-end (+ bp frame-size)))
     (format *trace-output* " ; bp ~d sp ~d locals ~s stack ~s~%"
             bp sp (subseq stack bp frame-end)
@@ -113,6 +114,11 @@
                (spush (object)
                  (prog1 (setf (stack sp) object) (incf sp)))
                (spop () (stack (decf sp)))
+               (bind (nvars base)
+                 ;; Most recent push goes to the last local.
+                 (loop repeat nvars
+                       for bsp downfrom (+ base nvars -1)
+                       do (setf (local bsp) (spop))))
                (code ()
                  ;;(declare (optimize (safety 0)))
                  (aref bytecode ip))
@@ -121,6 +127,8 @@
                  (aref bytecode (incf ip)))
                (next-code-signed ()
                  (signed (aref bytecode (+ ip 1)) 8))
+               (next-long ()
+                 (logior (next-code) (ash (next-code) 8)))
                (next-code-signed-16 ()
                  (signed (+ (aref bytecode (+ ip 1))
                             (ash (aref bytecode (+ ip 2)) 8))
@@ -146,10 +154,68 @@
                    (declare (type function callee))
                    (setf (vm-stack-top vm) sp)
                    (apply callee args)))
-               (mv-call () (call (spop))))
-        (declare (inline stack (setf stack) spush spop
-                         code next-code constant closure
-                         call mv-call))
+               (call-fixed (nargs mvals)
+                 (case mvals
+                   ((0) (call nargs))
+                   (t (mapcar #'spush (subseq (multiple-value-list (call nargs))
+                                              0 mvals)))))
+               (mv-call () (call (spop)))
+               (check-arg-count-<= (n)
+                 (unless (<= (vm-arg-count vm) n)
+                   (error 'arg:wrong-number-of-arguments
+                          :given-nargs (vm-arg-count vm)
+                          :max-nargs n)))
+               (check-arg-count->= (n)
+                 (unless (>= (vm-arg-count vm) n)
+                   (error 'arg:wrong-number-of-arguments
+                          :given-nargs (vm-arg-count vm)
+                          :max-nargs n)))
+               (check-arg-count-= (n)
+                 (unless (= (vm-arg-count vm) n)
+                   (error 'arg:wrong-number-of-arguments
+                          :given-nargs (vm-arg-count vm)
+                          :max-nargs n)))
+               (bind-required-args (nargs)
+                 ;; Use memcpy for this.
+                 (let* ((args (vm-args vm))
+                        (args-end (+ args nargs)))
+                   (do ((arg-index args (1+ arg-index))
+                        (frame-slot 0 (1+ frame-slot)))
+                       ((>= arg-index args-end))
+                     (setf (local frame-slot) (stack arg-index)))))
+               (bind-optional-args (required-count optional-count)
+                 (let* ((args (vm-args vm))
+                        (optional-start (+ args required-count))
+                        (args-end (+ args (vm-arg-count vm)))
+                        (end (+ optional-start optional-count))
+                        (optional-frame-offset required-count)
+                        (optional-frame-end (+ optional-frame-offset optional-count)))
+                   (if (<= args-end end)
+                       ;; Could be coded as memcpy in C.
+                       (do ((arg-index optional-start (1+ arg-index))
+                            (frame-slot optional-frame-offset (1+ frame-slot)))
+                           ((>= arg-index args-end)
+                            ;; memcpy or similar. (blit bit
+                            ;; pattern?)
+                            (do ((frame-slot frame-slot (1+ frame-slot)))
+                                ((>= frame-slot optional-frame-end))
+                              (setf (local frame-slot) (make-unbound-marker))))
+                         (setf (local frame-slot) (stack arg-index)))
+                       ;; Could also be coded as memcpy.
+                       (do ((arg-index optional-start (1+ arg-index))
+                            (frame-slot optional-frame-offset (1+ frame-slot)))
+                           ((>= arg-index end))
+                         (setf (local frame-slot) (stack arg-index))))))
+               (listify-rest-args (nfixed)
+                 (setf (local nfixed)
+                       (loop for index from nfixed below (vm-arg-count vm)
+                             collect (stack (+ (vm-args vm) index))))))
+        (declare (inline stack (setf stack) spush spop bind
+                         code next-code next-long constant closure
+                         call mv-call call-fixed
+                         check-arg-count-<= check-arg-count->=
+                         check-arg-count-= bind-required-args bind-optional-args
+                         listify-rest-args))
         (loop with end = (length bytecode)
               with trace = *trace*
               until (eql ip end)
@@ -168,22 +234,10 @@
                     (spush (call (next-code)))
                     (incf ip))
                    ((#.m:call-receive-fixed)
-                    (let ((nargs (next-code)) (mvals (next-code)))
-                      (case mvals
-                        ((0) (call nargs))
-                        (t (mapcar #'spush (subseq (multiple-value-list (call nargs))
-                                                   0 mvals)))))
+                    (call-fixed (next-code) (next-code))
                     (incf ip))
-                   ((#.m:bind)
-                    ;; Most recent push goes to the last local.
-                    (let ((nvars (next-code)))
-                      (loop repeat nvars
-                            for bsp downfrom (+ (next-code) nvars -1)
-                            do (setf (local bsp) (spop))))
-                    (incf ip))
-                   ((#.m:set)
-                    (setf (local (next-code)) (spop))
-                    (incf ip))
+                   ((#.m:bind) (bind (next-code) (next-code)) (incf ip))
+                   ((#.m:set) (setf (local (next-code)) (spop)) (incf ip))
                    ((#.m:make-cell) (spush (make-cell (spop))) (incf ip))
                    ((#.m:cell-ref) (spush (cell-value (spop))) (incf ip))
                    ((#.m:cell-set)
@@ -227,26 +281,11 @@
                    ((#.m:jump-if-16) (incf ip (if (spop) (next-code-signed-16) 3)))
                    ((#.m:jump-if-24) (incf ip (if (spop) (next-code-signed-24) 4)))
                    ((#.m:check-arg-count-<=)
-                    (let ((n (next-code)))
-                      (unless (<= (vm-arg-count vm) n)
-                        (error 'arg:wrong-number-of-arguments
-                               :given-nargs (vm-arg-count vm)
-                               :max-nargs n)))
-                    (incf ip))
+                    (check-arg-count-<= (next-code)) (incf ip))
                    ((#.m:check-arg-count->=)
-                    (let ((n (next-code)))
-                      (unless (>= (vm-arg-count vm) n)
-                        (error 'arg:wrong-number-of-arguments
-                               :given-nargs (vm-arg-count vm)
-                               :min-nargs n)))
-                    (incf ip))
+                    (check-arg-count->= (next-code)) (incf ip))
                    ((#.m:check-arg-count-=)
-                    (let ((n (next-code)))
-                      (unless (= (vm-arg-count vm) n)
-                        (error 'arg:wrong-number-of-arguments
-                               :given-nargs (vm-arg-count vm)
-                               :min-nargs n :max-nargs n)))
-                    (incf ip))
+                    (check-arg-count-= (next-code)) (incf ip))
                    ((#.m:jump-if-supplied-8)
                     (incf ip (if (typep (local (next-code)) 'unbound-marker)
                                  2
@@ -256,46 +295,11 @@
                                  3
                                  (1- (next-code-signed-16)))))
                    ((#.m:bind-required-args)
-                    ;; Use memcpy for this.
-                    (let* ((args (vm-args vm))
-                           (args-end (+ args (next-code))))
-                      (do ((arg-index args (1+ arg-index))
-                           (frame-slot 0 (1+ frame-slot)))
-                          ((>= arg-index args-end))
-                        (setf (local frame-slot) (stack arg-index))))
-                    (incf ip))
+                    (bind-required-args (next-code)) (incf ip))
                    ((#.m:bind-optional-args)
-                    (let* ((args (vm-args vm))
-                           (required-count (next-code))
-                           (optional-start (+ args required-count))
-                           (optional-count (next-code))
-                           (args-end (+ args (vm-arg-count vm)))
-                           (end (+ optional-start optional-count))
-                           (optional-frame-offset required-count)
-                           (optional-frame-end (+ optional-frame-offset optional-count)))
-                      (if (<= args-end end)
-                          ;; Could be coded as memcpy in C.
-                          (do ((arg-index optional-start (1+ arg-index))
-                               (frame-slot optional-frame-offset (1+ frame-slot)))
-                              ((>= arg-index args-end)
-                               ;; memcpy or similar. (blit bit
-                               ;; pattern?)
-                               (do ((frame-slot frame-slot (1+ frame-slot)))
-                                   ((>= frame-slot optional-frame-end))
-                                 (setf (local frame-slot) (make-unbound-marker))))
-                            (setf (local frame-slot) (stack arg-index)))
-                          ;; Could also be coded as memcpy.
-                          (do ((arg-index optional-start (1+ arg-index))
-                               (frame-slot optional-frame-offset (1+ frame-slot)))
-                              ((>= arg-index end))
-                            (setf (local frame-slot) (stack arg-index))))
-                      (incf ip)))
+                    (bind-optional-args (next-code) (next-code)) (incf ip))
                    ((#.m:listify-rest-args)
-                    (let ((nfixed (next-code)))
-                      (setf (local nfixed)
-                            (loop for index from nfixed below (vm-arg-count vm)
-                                  collect (stack (+ (vm-args vm) index)))))
-                    (incf ip))
+                    (listify-rest-args (next-code)) (incf ip))
                    ((#.m:parse-key-args)
                     (let* ((args (vm-args vm))
                            (end (+ args (vm-arg-count vm)))
@@ -495,10 +499,82 @@
                     (let ((index (next-code)))
                       (setf (local index) (make-cell (local index)))))
                    ((#.m:long)
-                    (ecase (next-code)
-                      (#.m:const
-                       (spush (constant (+ (next-code) (ash (next-code) 8))))
-                       (incf ip))))
+                    (case (next-code)
+                      (#.m:ref (spush (local (next-long))) (incf ip))
+                      (#.m:const (spush (constant (next-long))) (incf ip))
+                      (#.m:closure (spush (closure (next-long))) (incf ip))
+                      (#.m:call
+                       (setf (vm-values vm)
+                             (multiple-value-list (call (next-long))))
+                       (incf ip))
+                      (#.m:call-receive-one (spush (call (next-long))) (incf ip))
+                      (#.m:call-receive-fixed
+                       (call-fixed (next-long) (next-long)) (incf ip))
+                      (#.m:bind (bind (next-long) (next-long)) (incf ip))
+                      (#.m:set (setf (local (next-long)) (spop)) (incf ip))
+                      (#.m:bind-required-args
+                       (bind-required-args (next-long)) (incf ip))
+                      (#.m:bind-optional-args
+                       (bind-optional-args (next-long) (next-long)) (incf ip))
+                      (#.m:listify-rest-args
+                       (listify-rest-args (next-long)) (incf ip))
+                      (#.m:parse-key-args
+                       (let* ((args (vm-args vm))
+                              (end (+ args (vm-arg-count vm)))
+                              (more-start (+ args (next-long)))
+                              (key-count-info (next-long))
+                              (key-count (logand key-count-info #x7fff))
+                              (key-literal-start (next-long))
+                              (key-literal-end (+ key-literal-start key-count))
+                              (key-frame-start (next-long))
+                              (unknown-keys nil)
+                              (allow-other-keys-p nil))
+                         ;; Initialize all key values to #<unbound-marker>
+                         (loop for index from key-frame-start below (+ key-frame-start key-count)
+                               do (setf (local index) (make-unbound-marker)))
+                         (when (> end more-start)
+                           (do ((arg-index (- end 1) (- arg-index 2)))
+                               ((< arg-index more-start)
+                                (cond ((= arg-index (1- more-start)))
+                                      ((= arg-index (- more-start 2))
+                                       (error 'arg:odd-keywords))
+                                      (t
+                                       (error "BUG! This can't happen!"))))
+                             (let ((key (stack (1- arg-index))))
+                               (when (eq key :allow-other-keys)
+                                 (setf allow-other-keys-p (stack arg-index)))
+                               (loop for key-index from key-literal-start
+                                       below key-literal-end
+                                     for offset of-type (unsigned-byte 16)
+                                     from key-frame-start
+                                     do (when (eq (constant key-index) key)
+                                          (setf (local offset) (stack arg-index))
+                                          (return))
+                                     finally (unless (or allow-other-keys-p
+                                                         ;; aok is always allowed
+                                                         (eq key :allow-other-keys))
+                                               (push key unknown-keys))))))
+                         (when (and (not (or (logbitp 15 key-count-info)
+                                             allow-other-keys-p))
+                                    unknown-keys)
+                           (error 'arg:unrecognized-keyword-argument
+                                  :unrecognized-keywords unknown-keys))))
+                      (#.m:check-arg-count-<=
+                       (check-arg-count-<= (next-long)) (incf ip))
+                      (#.m:check-arg-count->=
+                       (check-arg-count->= (next-long)) (incf ip))
+                      (#.m:check-arg-count-=
+                       (check-arg-count-= (next-long)) (incf ip))
+                      (#.m:jump-if-supplied-8
+                       (incf ip (if (typep (local (next-long)) 'unbound-marker)
+                                    2
+                                    (- (next-code-signed) 3))))
+                      (#.m:jump-if-supplied-16
+                       (incf ip (if (typep (local (next-long)) 'unbound-marker)
+                                    3
+                                    (- (next-code-signed-16) 3))))
+                      (otherwise
+                       (error "Unknown long opcode #x~x" (code)))))
                    (otherwise
                     (error "Unknown opcode #x~x" (code)))))))))
 

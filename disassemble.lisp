@@ -42,7 +42,7 @@
 
 (defun disassemble-instruction (bytecode ip &key (labels () labelsp))
   (let ((desc (decode-instr (aref bytecode ip)))
-        (longp ()) (opip ip))
+        (longp cl:nil) (opip ip))
     (when (cl:eq (first desc) 'long)
       (setf longp t desc (decode-instr (aref bytecode (incf opip)))))
     (setf ip (1+ opip))

@@ -247,7 +247,7 @@
   (dolist (value values t)
     (unless (<= 0 value (1- max)) (return-from values-less-than-p nil))))
 
-(defun assemble-maybe-long (context opcode &rest values)
+(defun assemble (context opcode &rest values)
   (let ((assembly (context-assembly context)))
     (cond ((values-less-than-p values #.(ash 1 8))
            (vector-push-extend opcode assembly)
@@ -260,18 +260,24 @@
              (vector-push-extend (ldb (byte 8 0) value) assembly)
              (vector-push-extend (ldb (byte 8 8) value) assembly)))
           (t
-           (error "Bytecode compiler limit reached: Indices too large! ~a" values)))))
+           (error "Bytecode compiler limit reached: Operands too large! ~a" values)))))
 
-(defun assemble (context &rest values)
-  (let ((assembly (context-assembly context)))
-    (dolist (value values)
-      (vector-push-extend value assembly))))
-
-(defun assemble-into (code position &rest values)
-  (do ((values values (rest values))
-       (position position (1+ position)))
-      ((null values))
-    (setf (aref code position) (first values))))
+(defun assemble-into (code position opcode &rest values)
+  (cond ((values-less-than-p values #.(ash 1 8))
+         (setf (aref code position) opcode)
+         (do ((values values (rest values))
+              (position (1+ position) (1+ position)))
+             ((null values))
+           (setf (aref code position) (first values))))
+        ((values-less-than-p values #.(ash 1 16))
+         (setf (aref code      position) m:long
+               (aref code (1+ position)) opcode)
+         (loop for value in values
+               for pos from (+ 2 position) by 2
+               do (setf (aref code      pos) (ldb (byte 8 0) value)
+                        (aref code (1+ pos)) (ldb (byte 8 8) value))))
+        (t
+         (error "Bytecode compiler limit reached: Operands too large! ~a" values))))
 
 ;;; Write WORD of bytesize SIZE to VECTOR at POSITION.
 (defun write-le-unsigned (vector word size position)
@@ -330,42 +336,57 @@
 (defun emit-jump-if-supplied (context index label)
   (flet ((emitter (fixup position code)
            (let* ((size (fixup-size fixup))
-                  (offset (unsigned (fixup-delta fixup) (* 8 (1- size)))))
-             (setf (aref code position)
-                   (ecase size
-                     (3 m:jump-if-supplied-8)
-                     (4 m:jump-if-supplied-16)))
-             (setf (aref code (1+ position)) index)
-             (write-le-unsigned code offset (- size 2) (+ position 2))))
+                  (offset (unsigned (fixup-delta fixup)
+                                    (* 8 (if (evenp size) 2 1)))))
+             (ecase size
+               (3
+                (setf (aref code position) m:jump-if-supplied-8
+                      (aref code (1+ position)) index
+                      position (+ 2 position)))
+               (4
+                (setf (aref code position) m:jump-if-supplied-16
+                      (aref code (1+ position)) index
+                      position (+ 2 position)))
+               (5
+                (setf (aref code position) m:long
+                      (aref code (+ 1 position)) m:jump-if-supplied-8
+                      (aref code (+ 2 position)) (ldb (byte 8 0) index)
+                      (aref code (+ 3 position)) (ldb (byte 8 8) index)
+                      position (+ 4 position)))
+               (6
+                (setf (aref code position) m:long
+                      (aref code (+ 1 position)) m:jump-if-supplied-16
+                      (aref code (+ 2 position)) (ldb (byte 8 0) index)
+                      (aref code (+ 3 position)) (ldb (byte 8 8) index)
+                      position (+ 4 position))))
+             (write-le-unsigned code offset (if (evenp size) 2 1) position)))
          (resizer (fixup)
            (typecase (fixup-delta fixup)
-             ((signed-byte 8) 3)
-             ((signed-byte 16) 4)
+             ((signed-byte 8) (if (< index #.(ash 1 8)) 3 5))
+             ((signed-byte 16) (if (< index #.(ash 1 8)) 4 6))
              (t (error "???? PC offset too big ????")))))
     (emit-fixup context (make-fixup label 3 #'emitter #'resizer))))
 
-(defun emit-const (context index)
-  (if (> index 255)
-      (assemble context
-        m:long m:const
-        (logand index #xff) (logand (ash index -8) #xff))
-      (assemble context m:const index)))
-
-(defun emit-fdefinition (context index)
-  (if (> index 255)
-      (assemble context
-        m:long m:fdefinition
-        (logand index #xff) (logand (ash index -8) #xff))
-      (assemble context m:fdefinition index)))
+(defun emit-const (context index) (assemble context m:const index))
+(defun emit-fdefinition (context index) (assemble context m:fdefinition index))
 
 (defun emit-parse-key-args (context max-count key-count key-names aok-p)
-  (if (<= key-count 127)
-      (assemble context m:parse-key-args
-                max-count
-                (if aok-p (boole boole-ior 128 key-count) key-count)
-                (literal-index (first key-names) context)
-                (context-frame-end context))
-      (error "Handle more than 127 keyword parameters - you need ~s" key-count)))
+  ;; Because of the key-count encoding, we have to special case long a bit.
+  (let ((frame-end (context-frame-end context))
+        (lit (if (zerop key-count) ; don't need a literal then
+                 0
+                 (literal-index (first key-names) context))))
+    (cond ((and (< max-count #.(ash 1 8)) (< key-count #.(ash 1 7))
+                (< lit #.(ash 1 8)) (< frame-end #.(ash 1 8)))
+           (assemble context m:parse-key-args
+             max-count
+             (if aok-p (logior #.(ash 1 7) key-count) key-count)
+             lit frame-end))
+          (t
+           (assemble context m:parse-key-args
+             max-count
+             (if aok-p (logior #.(ash 1 15) key-count) key-count)
+             lit frame-end)))))
 
 (defun emit-bind (context count offset)
   (cond ((= count 1) (assemble context m:set offset))
@@ -413,22 +434,26 @@
 (defun maybe-emit-encell (lexical-var context)
   (let ((index (frame-offset lexical-var)))
     (flet ((emitter (fixup position code)
-             (assert (= (fixup-size fixup) 2))
+             (assert (= (fixup-size fixup) (if (< index #.(ash 1 8)) 2 4)))
              (assemble-into code position m:encell index))
            (resizer (fixup)
              (declare (ignore fixup))
-             (if (indirect-lexical-p lexical-var) 2 0)))
+             (cond ((not (indirect-lexical-p lexical-var)) 0)
+                   ((< index #.(ash 1 8)) 2)
+                   (t 4))))
       (emit-fixup context (make-fixup lexical-var 0 #'emitter #'resizer)))))
 
 (defun emit-lexical-set (lexical-var context)
   (let ((index (frame-offset lexical-var)))
     (flet ((emitter (fixup position code)
-             (if (= (fixup-size fixup) 3)
+             (if (oddp (fixup-size fixup))
                  (assemble-into code position m:ref index m:cell-set)
                  (assemble-into code position m:set index)))
            (resizer (fixup)
              (declare (ignore fixup))
-             (if (indirect-lexical-p lexical-var) 3 2)))
+             (if (indirect-lexical-p lexical-var)
+                 (if (< index #.(ash 1 8)) 3 5)
+                 (if (< index #.(ash 1 8)) 2 4))))
       (emit-fixup context (make-fixup lexical-var 2 #'emitter #'resizer)))))
 
 (defun constant-resizer (n) (lambda (fixup) (declare (ignore fixup)) n))
@@ -439,8 +464,11 @@
              (declare (ignore fixup))
              (if (closed-over-p dynenv-info)
                  (assemble-into code position m:entry index)
-                 (assemble-into code position m:save-sp index))))
-      (emit-fixup context (make-fixup dynenv-info 2 #'emitter (constant-resizer 2))))))
+                 (assemble-into code position m:save-sp index)))
+           (resizer (fixup)
+             (declare (ignore fixup))
+             (if (< index #.(ash 1 8)) 2 4)))
+      (emit-fixup context (make-fixup dynenv-info 2 #'emitter #'resizer)))))
 
 (defun emit-ref-or-restore-sp (context dynenv-info)
   (let ((index (frame-offset dynenv-info)))
@@ -448,8 +476,11 @@
              (declare (ignore fixup))
              (if (closed-over-p dynenv-info)
                  (assemble-into code position m:ref index)
-                 (assemble-into code position m:restore-sp index))))
-      (emit-fixup context (make-fixup dynenv-info 2 #'emitter (constant-resizer 2))))))
+                 (assemble-into code position m:restore-sp index)))
+           (resizer (fixup)
+             (declare (ignore fixup))
+             (if (< index #.(ash 1 8)) 2 4)))
+      (emit-fixup context (make-fixup dynenv-info 2 #'emitter #'resizer)))))
 
 (defun emit-exit-or-jump (context dynenv-info label)
   (flet ((emitter (fixup position code)
@@ -513,7 +544,7 @@
 ;;; maybe use that and not have our own environments at all.
 
 (defmethod trucler:global-environment (client (env lexical-environment))
-  (declare (ignore env))
+  (declare (ignore client))
   (global-environment env))
 
 (defmethod trucler:describe-variable
@@ -1046,7 +1077,7 @@
                  (setf (values env inner-context)
                        (bind-vars (list var) env inner-context))
                  (maybe-emit-make-cell (var-info var env) inner-context)
-                 (assemble-maybe-long inner-context m:set frame-start))))))
+                 (assemble inner-context m:set frame-start))))))
     (let ((new-env (if specials
                        ;; We do this to make sure special declarations get
                        ;; through even if this form doesn't bind them.
@@ -1107,14 +1138,14 @@
                        do (emit-const context literal-index)
                      else
                        collect (cons fun (frame-offset (fun-info name new-env)))
-                       and do (assemble-maybe-long context
-                                                   m:make-uninitialized-closure
-                                                   literal-index))))
+                       and do (assemble context
+                                m:make-uninitialized-closure
+                                literal-index))))
         (emit-bind context (length definitions) (context-frame-end context))
         (dolist (closure closures)
           (loop for var across (cfunction-closed (car closure))
                 do (reference-lexical-variable var new-context))
-          (assemble-maybe-long context m:initialize-closure (cdr closure)))
+          (assemble context m:initialize-closure (cdr closure)))
         (compile-locally body new-env new-context)))))
 
 (defgeneric compile-setq-1 (info var value-form environment context))
@@ -1131,8 +1162,7 @@
   ;; alter it.
   (unless (eql (context-receiving context) 0)
     (assemble context m:dup))
-  (assemble-maybe-long context m:symbol-value-set
-                       (value-cell-index var context))
+  (assemble context m:symbol-value-set (value-cell-index var context))
   (when (eql (context-receiving context) t)
     (assemble context m:pop)))
 
@@ -1158,8 +1188,7 @@
            (emit-lexical-set info context))
           ;; Don't emit a fixup if we already know we need a cell.
           (t
-           (assemble-maybe-long context m:closure
-                                (closure-index info context))
+           (assemble context m:closure (closure-index info context))
            (assemble context m:cell-set)))
     (when (eql (context-receiving context) t)
       (assemble context m:pop))))
@@ -1201,8 +1230,8 @@
 ;;; Push the immutable value or cell of lexical in CONTEXT.
 (defun reference-lexical-variable (info context)
   (if (eq (lvar-cfunction info) (context-function context))
-      (assemble-maybe-long context m:ref (frame-offset info))
-      (assemble-maybe-long context m:closure (closure-index info context))))
+      (assemble context m:ref (frame-offset info))
+      (assemble context m:closure (closure-index info context))))
 
 (defun compile-function-lookup (fnameoid env context)
   (typecase fnameoid
@@ -1280,8 +1309,7 @@
            (emit-exit-or-jump context dynenv-info label))
           (t
            (setf (closed-over-p dynenv-info) t)
-           (assemble-maybe-long context m:closure
-                                (closure-index dynenv-info context))
+           (assemble context m:closure (closure-index dynenv-info context))
            (emit-exit context label)))))
 
 (defmethod compile-special ((op (eql 'go)) form env context)
@@ -1353,7 +1381,7 @@
   (destructure-syntax (progv symbols values . body) (form)
     (compile-form symbols env (new-context context :receiving 1))
     (compile-form values env (new-context context :receiving 1))
-    (assemble-maybe-long context m:progv (env-index context))
+    (assemble context m:progv (env-index context))
     (compile-progn body env context)
     (emit-unbind context 1)))
 
@@ -1390,8 +1418,8 @@
       ;;  used, but that's a very marginal case.)
       (ecase (context-receiving context)
         ((0))
-        ((1) (assemble-maybe-long context m:const index))
-        ((t) (assemble-maybe-long context m:const index)
+        ((1) (assemble context m:const index))
+        ((t) (assemble context m:const index)
          (assemble context m:pop))))))
 
 (defmethod compile-special ((op (eql 'symbol-macrolet)) form env context)
@@ -1478,7 +1506,7 @@
      (emit-fdefinition context (fdefinition-index (second form) context)))
     (t
      (compile-form form env (new-context context :receiving 1))
-     (assemble-maybe-long context m:fdesignator (env-index context)))))
+     (assemble context m:fdesignator (env-index context)))))
 
 (defmethod compile-special ((op (eql 'multiple-value-call)) form env context)
   (destructure-syntax (multiple-value-call function-form . forms) (form)
@@ -1568,14 +1596,14 @@
              (when (not more-p)
                (assemble context m:check-arg-count-<= max-count))))
       (unless (zerop min-count)
-        (assemble-maybe-long context m:bind-required-args min-count)
+        (assemble context m:bind-required-args min-count)
         (dolist (var required)
           ;; We account for special declarations in outer environments/globally
           ;; by checking the original environment - not our new one - for info.
           (cond ((or (member var specials)
                      (globally-special-p var env))
                  (let ((info (var-info var new-env)))
-                   (assemble-maybe-long context m:ref (frame-offset info))
+                   (assemble context m:ref (frame-offset info))
                    (emit-special-bind context var))
                  (incf special-binding-count))
                 (t
@@ -1587,8 +1615,7 @@
       (unless (zerop optional-count)
         ;; Generate code to bind the provided optional args; unprovided args will
         ;; be initialized with the unbound marker.
-        (assemble-maybe-long context m:bind-optional-args
-                             min-count optional-count)
+        (assemble context m:bind-optional-args min-count optional-count)
         (let ((optvars (mapcar #'first optionals)))
           ;; Mark the location of each optional. Note that we do this even if
           ;; the variable will be specially bound.
@@ -1599,13 +1626,12 @@
             (push (cons var (frame-offset (var-info var new-env)))
                   opt-key-indices))))
       (when rest
-        (assemble-maybe-long context m:listify-rest-args max-count)
+        (assemble context m:listify-rest-args max-count)
         (setf (values new-env context)
               (bind-vars (list rest) new-env context))
         (cond ((or (member rest specials)
                    (globally-special-p rest env))
-               (assemble-maybe-long
-                context m:ref (frame-offset (var-info rest new-env)))
+               (assemble context m:ref (frame-offset (var-info rest new-env)))
                (emit-special-bind context rest)
                (incf special-binding-count 1)
                (setq new-env (add-specials (list rest) new-env)))
@@ -1726,7 +1752,7 @@
   (flet ((default (suppliedp specialp var info)
            (cond (suppliedp
                   (cond (specialp
-                         (assemble-maybe-long context m:ref var-index)
+                         (assemble context m:ref var-index)
                          (emit-special-bind context var))
                         (t
                          (maybe-emit-encell info context))))
@@ -1742,7 +1768,7 @@
                          (emit-special-bind context var))
                         (t
                          (maybe-emit-make-cell info context)
-                         (assemble-maybe-long context m:set var-index))))))
+                         (assemble context m:set var-index))))))
          (supply (suppliedp specialp var info)
            (if suppliedp
                (compile-literal t env (new-context context :receiving 1))
@@ -1751,8 +1777,7 @@
                   (emit-special-bind context var))
                  (t
                   (maybe-emit-make-cell info context)
-                  (assemble-maybe-long
-                   context m:set (frame-offset info))))))
+                  (assemble context m:set (frame-offset info))))))
     (let ((supplied-label (make-label))
           (var-info (var-info var env)))
       (when supplied-var
