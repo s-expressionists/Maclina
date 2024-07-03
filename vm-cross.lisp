@@ -7,7 +7,8 @@
   (:export #:client)
   (:export #:initialize-vm)
   (:export #:*trace*)
-  (:export #:make-variable-access-closures))
+  (:export #:make-variable-access-closures)
+  (:export #:with-timeout #:timeout))
 
 (in-package #:maclina.vm-cross)
 
@@ -44,6 +45,19 @@
 
 (defstruct (cell (:constructor make-cell (value))) value)
 (defvar *unbound* (vm:make-unbound-marker))
+
+(defvar *timeout* nil)
+(declaim (type (or null (and fixnum unsigned-byte)) *timeout*))
+(defvar *odometer* nil)
+(declaim (type (or null (and fixnum unsigned-byte)) *odometer*))
+
+(defmacro with-timeout ((n) &body body)
+  `(let ((*timeout* ,n) (*odometer* 0)) ,@body))
+
+(define-condition timeout (error)
+  ((%timeout :initarg :timeout :reader timeout))
+  (:report (lambda (condition stream)
+             (format stream "VM timeout at ~d steps" (timeout condition)))))
 
 (defstruct dynenv)
 (defstruct (entry-dynenv (:include dynenv)
@@ -259,7 +273,8 @@
          (stack (vm-stack vm))
          (ip (vm-pc vm))
          (sp (vm-stack-top vm))
-         (bp (vm-frame-pointer vm)))
+         (bp (vm-frame-pointer vm))
+         (timeout *timeout*))
     (declare (type (simple-array t (*)) stack)
              (type (and unsigned-byte fixnum) ip sp bp))
     (labels ((stack (index)
@@ -337,6 +352,9 @@
        loop
          (when (>= ip end)
            (error "Invalid bytecode: Reached end"))
+         (when timeout
+           (when (> (incf *odometer*) timeout)
+             (error 'timeout :timeout timeout)))
          (when trace
            (instruction-trace bytecode constants stack ip bp sp frame-size))
          ;; The catch is for NLX. Without NLX, a (go loop) at the
