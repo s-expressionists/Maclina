@@ -70,12 +70,20 @@
   :depends-on (:maclina/base :ieee-floats)
   :components ((:file "loadltv")))
 
+(asdf:defsystem #:maclina/vm-shared
+  :description "Code shared by VM implementations."
+  :author ("Charles Zhang" "Bike <aeshtaer@gmail.com>")
+  :maintainer "Bike <aeshtaer@gmail.com"
+  :depends-on (:maclina/base)
+  :components ((:file "vm-shared")))
+
 (asdf:defsystem #:maclina/vm-native
   :description "Maclina VM implementation using host environment."
   :author ("Charles Zhang"
            "Bike <aeshtaer@gmail.com>")
   :maintainer "Bike <aeshtaer@gmail.com>"
-  :depends-on (:maclina/base :trucler) ; trucler only needed for client class - remove?
+  ;; trucler only needed for client class - remove?
+  :depends-on (:maclina/vm-shared :trucler)
   :components ((:file "vm-native")))
 
 (asdf:defsystem #:maclina/vm-cross
@@ -83,7 +91,7 @@
   :author ("Charles Zhang"
            "Bike <aeshtaer@gmail.com>")
   :maintainer "Bike <aeshtaer@gmail.com>"
-  :depends-on (:maclina/base :clostrum :clostrum-trucler)
+  :depends-on (:maclina/vm-shared :clostrum :clostrum-trucler)
   :components ((:file "vm-cross")))
 
 (asdf:defsystem #:maclina/test
@@ -108,6 +116,7 @@
                                (:file "externalize")))
                  (:file "cleanliness" :depends-on ("suites" "rt" "packages"))
                  (:file "cooperation" :depends-on ("suites" "rt" "packages"))
+                 (:file "timeout" :depends-on ("suites" "rt" "packages"))
                  (:file "long" :depends-on ("suites" "rt" "packages"))
                  (:module "compiler-conditions"
                   :depends-on ("suites" "rt" "packages")
