@@ -39,10 +39,11 @@
                  (:file "unknown-reference-conditions" :depends-on ("package"))
                  (:file "compilation-unit"
                   :depends-on ("unknown-reference-conditions" "package"))
+                 (:file "environment" :depends-on ("package"))
                  (:file "compile" :depends-on ("unknown-reference-conditions"
                                                "misc-program-conditions"
                                                "compilation-unit" "parse-macro"
-                                               "package"))
+                                               "environment" "package"))
                  (:file "documentation" :depends-on ("compile"))))))
 
 (asdf:defsystem #:maclina/compile-file
