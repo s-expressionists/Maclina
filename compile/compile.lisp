@@ -503,10 +503,24 @@
 ;;; Environments (mostly in environment.lisp)
 ;;;
 
+;;; From a list of declarations, determine the ignore status of the variable
+;;; or #'function. This will be either nil (default), cl:ignore, or cl:ignorable.
+;;; Assumes basic declaration validity has already been checked.
+(defun binding-ignore (name declarations)
+  (dolist (declaration declarations)
+    (dolist (specifier (rest declaration) nil)
+      (case (car specifier)
+        (cl:ignore
+         (when (member name (rest specifier) :test #'equal)
+         (return-from binding-ignore 'cl:ignore)))
+        (cl:ignorable
+         (when (member name (rest specifier) :test #'equal)
+           (return-from binding-ignore 'cl:ignorable)))))))
+
 ;;; Bind each variable to a stack location, returning a new lexical
 ;;; environment and new context.
 ;;; The max local count in the current function is also updated.
-(defun bind-vars (vars env context)
+(defun bind-vars (vars env context declarations)
   (let* ((frame-start (context-frame-end context))
          (var-count (length vars))
          (frame-end (+ frame-start var-count))
@@ -515,7 +529,9 @@
          (vars vars (rest vars))
          (new-vars (vars env)
                    (acons (first vars)
-                          (make-lexical-variable (first vars) index function)
+                          (make-lexical-variable
+                           (first vars) index function
+                           :ignore (binding-ignore (first vars) declarations))
                           new-vars)))
         ((>= index frame-end)
          (values (make-lexical-environment env :vars new-vars)
@@ -524,7 +540,7 @@
         (error 'bind-constant :name (first vars))))))
 
 ;;; Like the above, but function namespace.
-(defun bind-fvars (funs env context)
+(defun bind-fvars (funs env context declarations)
   (let* ((frame-start (context-frame-end context))
          (fun-count (length funs))
          (frame-end (+ frame-start fun-count))
@@ -533,7 +549,10 @@
          (funs funs (rest funs))
          (new-vars (funs env)
                    (acons (first funs)
-                          (make-local-function (first funs) index function)
+                          (make-local-function
+                           (first funs) index function
+                           :ignore (binding-ignore `(function ,(first funs))
+                                                   declarations))
                           new-vars)))
         ((>= index frame-end)
          (values (make-lexical-environment env :funs new-vars)
@@ -658,6 +677,9 @@
 (defmethod compile-symbol ((info trucler:lexical-variable-description)
                            form env context)
   (declare (ignore form env))
+  (setf (lvar-readp info) t)
+  (when (eq (trucler:ignore info) 'cl:ignore)
+    (warn 'used :name (trucler:name info) :kind 'variable))
   (unless (eql (context-receiving context) 0)
     (cond ((eq (lvar-cfunction info) (context-function context))
            (assemble context m:ref (frame-offset info)))
@@ -720,6 +742,9 @@
 
 (defmethod compile-combination ((info trucler:local-function-description)
                                 form env context)
+  (setf (lvar-readp info) t)
+  (when (eq (trucler:ignore info) 'cl:ignore)
+    (warn 'used :name (trucler:name info) :kind 'function))
   (reference-lexical-variable info context)
   (compile-call (rest form) env context))
 
@@ -836,6 +861,19 @@
         (values name value))
       (values binding nil)))
 
+;;; Given a list of lexical infos, warn if any of them are unused.
+(defun warn-ignorance (infos)
+  (dolist (info infos)
+    (when (and (null (trucler:ignore info)) ; not IGNORE or IGNORABLE
+               (not (lvar-readp info))) ; not used
+      (etypecase info
+        (trucler:lexical-variable-description
+         (if (setp info)
+             (warn 'set-unused :name (trucler:name info) :kind 'variable)
+             (warn 'unused :name (trucler:name info) :kind 'variable)))
+        (trucler:local-function-description
+         (warn 'unused :name (trucler:name info) :kind 'function))))))
+
 (defmethod compile-special ((operator (eql 'let)) form env context)
   ;; This is really long because we make an environment manually rather
   ;; than use bind-vars, which would be even more awkward and cons more.
@@ -873,7 +911,8 @@
                              :name var))
                           (t ; lexical
                            (let ((lex (make-lexical-variable
-                                       var frame-end cf)))
+                                       var frame-end cf
+                                       :ignore (binding-ignore var decls))))
                              (incf frame-end)
                              (maybe-emit-make-cell lex context)
                              lex)))))
@@ -887,7 +926,8 @@
                 (new-context context
                              :frame-end frame-end
                              :dynenv (make-list special-binding-count
-                                                :initial-element :special))))
+                                                :initial-element :special)))
+              (igninfos nil))
           ;; Generate the bind and special-bind instructions.
           ;; We generate one bind for each block of contiguous lexicals.
           ;; We bind the most recently pushed values first, so in reverse order,
@@ -895,7 +935,7 @@
           (loop with nlex = 0
                 for (name . info) in new-bindings
                 if (typep info 'trucler:lexical-variable-description)
-                  do (incf nlex)
+                  do (incf nlex) (push info igninfos)
                 else ; special
                 do ; first finish any lexical binding.
                    (when (plusp nlex)
@@ -910,7 +950,8 @@
                                      (- frame-end nlex))))
           ;; Finally, the actual body.
           (compile-progn body post-binding-env post-binding-context)
-          (emit-unbind post-binding-context special-binding-count))))))
+          (emit-unbind post-binding-context special-binding-count)
+          (warn-ignorance igninfos))))))
 
 (defun compile-let* (bindings decls body env context
                      &key (block-name nil block-name-p))
@@ -918,7 +959,8 @@
     (error 'improper-bindings :bindings bindings))
   (let ((special-binding-count 0)
         (specials (extract-specials decls))
-        (inner-context context))
+        (inner-context context)
+        (lexinfos nil))
     (dolist (binding bindings)
       (multiple-value-bind (var valf) (canonicalize-binding binding)
         (unless (symbolp var) (error 'variable-not-symbol :name var))
@@ -930,11 +972,12 @@
                (setq inner-context (new-context inner-context
                                                 :dynenv '(:special))))
               (t
-               (let ((frame-start (context-frame-end inner-context)))
-                 (setf (values env inner-context)
-                       (bind-vars (list var) env inner-context))
-                 (maybe-emit-make-cell (var-info var env) inner-context)
-                 (assemble inner-context m:set frame-start))))))
+               (setf (values env inner-context)
+                     (bind-vars (list var) env inner-context decls))
+               (let ((info (var-info var env)))
+                 (push info lexinfos)
+                 (maybe-emit-make-cell info inner-context)
+                 (assemble inner-context m:set (frame-offset info)))))))
     (let ((new-env (if specials
                        ;; We do this to make sure special declarations get
                        ;; through even if this form doesn't bind them.
@@ -945,7 +988,8 @@
       (if block-name-p
           (compile-block block-name body new-env inner-context)
           (compile-progn body new-env inner-context)))
-    (emit-unbind context special-binding-count)))
+    (emit-unbind context special-binding-count)
+    (warn-ignorance lexinfos)))
 
 (defmethod compile-special ((operator (eql 'let*)) form env context)
   (destructure-syntax (let* bindings . body) (form)
@@ -964,8 +1008,13 @@
                 env context :name `(flet ,name)
                 :block-name (fun-name-block-name name))))
     (emit-bind context (length definitions) (context-frame-end context))
-    (multiple-value-call #'compile-locally body
-      (bind-fvars (mapcar #'car definitions) env context))))
+    (multiple-value-bind (body decls) (parse-body body)
+      (multiple-value-bind (env context)
+          (bind-fvars (mapcar #'car definitions) env context decls)
+        (compile-progn body (add-declarations env decls) context)
+        (warn-ignorance
+         (loop for (name) in definitions
+               collect (fun-info name env)))))))
 
 (defmethod compile-special ((operator (eql 'labels)) form env context)
   (destructure-syntax (labels definitions . body) (form)
@@ -975,35 +1024,40 @@
             (unless (proper-list-p bind)
               (error 'improper-arguments :args bind)))
           definitions)
-    (multiple-value-bind (new-env new-context)
-        (bind-fvars (mapcar #'first definitions) env context)
-      (let* ((module (context-module context))
-             (closures
-               (loop for definition in definitions
-                     for (name fun)
-                       = (destructure-syntax
-                             (labels-binding name lambda-list . body)
-                             (definition :rest nil)
-                           (let ((bname (fun-name-block-name name)))
-                             (list name
-                                   (compile-lambda
-                                    lambda-list body new-env module
-                                    :name `(labels ,name)
-                                    :block-name bname))))
-                     for literal-index = (cfunction-literal-index fun context)
-                     if (zerop (length (cfunction-closed fun)))
-                       do (emit-const context literal-index)
-                     else
-                       collect (cons fun (frame-offset (fun-info name new-env)))
-                       and do (assemble context
-                                m:make-uninitialized-closure
-                                literal-index))))
-        (emit-bind context (length definitions) (context-frame-end context))
-        (dolist (closure closures)
-          (loop for var across (cfunction-closed (car closure))
-                do (reference-lexical-variable var new-context))
-          (assemble context m:initialize-closure (cdr closure)))
-        (compile-locally body new-env new-context)))))
+    (multiple-value-bind (body decls) (parse-body body)
+      (multiple-value-bind (new-env new-context)
+          (bind-fvars (mapcar #'first definitions) env context decls)
+        (let* ((module (context-module context))
+               (igninfos nil)
+               (closures
+                 (loop for definition in definitions
+                       for (name fun)
+                         = (destructure-syntax
+                               (labels-binding name lambda-list . body)
+                               (definition :rest nil)
+                             (let ((bname (fun-name-block-name name)))
+                               (list name
+                                     (compile-lambda
+                                      lambda-list body new-env module
+                                      :name `(labels ,name)
+                                      :block-name bname))))
+                       for literal-index = (cfunction-literal-index fun context)
+                       for info = (fun-info name new-env)
+                       do (push info igninfos)
+                       if (zerop (length (cfunction-closed fun)))
+                         do (emit-const context literal-index)
+                       else
+                         collect (cons fun (frame-offset info))
+                         and do (assemble context
+                                  m:make-uninitialized-closure
+                                  literal-index))))
+          (emit-bind context (length definitions) (context-frame-end context))
+          (dolist (closure closures)
+            (loop for var across (cfunction-closed (car closure))
+                  do (reference-lexical-variable var new-context))
+            (assemble context m:initialize-closure (cdr closure)))
+          (compile-progn body (add-declarations new-env decls) new-context)
+          (warn-ignorance igninfos))))))
 
 (defgeneric compile-setq-1 (info var value-form environment context))
 
@@ -1092,25 +1146,32 @@
 
 (defun compile-function-lookup (fnameoid env context)
   (typecase fnameoid
-    (lambda-expression (compile-lambda-expression fnameoid env context))
+    (lambda-expression
+     (unless (eql 0 (context-receiving context))
+       (compile-lambda-expression fnameoid env context)))
     (function-name
      (let ((info (fun-info fnameoid env)))
        (etypecase info
          (trucler:global-function-description
-          (emit-fdefinition context (fdefinition-index fnameoid context)))
+          (unless (eql 0 (context-receiving context))
+            (emit-fdefinition context (fdefinition-index fnameoid context))))
          (trucler:local-function-description
-          (reference-lexical-variable info context))
+          (setf (lvar-readp info) t)
+          (when (eq (trucler:ignore info) 'cl:ignore)
+            (warn 'used :name (trucler:name info) :kind 'function))
+          (unless (eql 0 (context-receiving context))
+            (reference-lexical-variable info context)))
          (null
           (warn-unknown 'unknown-function :name fnameoid)
-          (emit-fdefinition context (fdefinition-index fnameoid context))))))
+          (unless (eql 0 (context-receiving context))
+            (emit-fdefinition context (fdefinition-index fnameoid context)))))))
     (t (error 'not-fnameoid :fnameoid fnameoid))))
 
 (defmethod compile-special ((op (eql 'function)) form env context)
   (destructure-syntax (function fnameoid) (form)
-    (unless (eql (context-receiving context) 0)
-      (compile-function-lookup fnameoid env context)
-      (when (eql (context-receiving context) t)
-        (assemble context m:pop)))))
+    (compile-function-lookup fnameoid env context)
+    (when (eql (context-receiving context) t)
+      (assemble context m:pop))))
 
 (defun go-tag-p (object) (typep object '(or symbol integer)))
 
@@ -1121,7 +1182,9 @@
     (unless (proper-list-p statements)
       (error 'improper-body :body statements))
     (multiple-value-bind (env stmt-context-1)
-        (bind-vars (list tagbody-dynenv) env context)
+        (bind-vars (list tagbody-dynenv) env context
+                   ;; the dynenv is implicitly ignorable.
+                   `((declare (ignorable ,tagbody-dynenv))))
       (let* ((dynenv-info (var-info tagbody-dynenv env))
              (stmt-context (new-context stmt-context-1
                                         :receiving 0
@@ -1181,7 +1244,8 @@
   (unless (symbolp name) (error 'block-name-not-symbol :name name))
   (let ((block-dynenv (gensym "BLOCK-DYNENV")))
     (multiple-value-bind (env body-context-1)
-        (bind-vars (list block-dynenv) env context)
+        (bind-vars (list block-dynenv) env context
+                   `((declare (ignorable ,block-dynenv))))
       (let* ((dynenv-info (var-info block-dynenv env))
              (body-context (new-context body-context-1
                                         :dynenv (list dynenv-info)))
@@ -1441,8 +1505,10 @@
            ;; This is needed so that we can properly mark any that are special as
            ;; such while leaving them temporarily "lexically" bound during
            ;; argument parsing.
-           (opt-key-indices nil))
-      (setf (values new-env context) (bind-vars required env context))
+           (opt-key-indices nil)
+           ;; A list of lexical infos to check for ignoredness.
+           (igninfos nil))
+      (setf (values new-env context) (bind-vars required env context decls))
       (emit-label context entry-point)
       ;; Generate argument count check.
       (cond ((and required (= min-count max-count) (not more-p))
@@ -1464,7 +1530,9 @@
                    (emit-special-bind context var))
                  (incf special-binding-count))
                 (t
-                 (maybe-emit-encell (var-info var new-env) context))))
+                 (let ((info (var-info var new-env)))
+                   (push info igninfos)
+                   (maybe-emit-encell info context)))))
         (setq new-env (add-specials (intersection specials required) new-env)))
       ;; set the default env to have all the requireds bound,
       ;; but don't put in the optionals (yet).
@@ -1477,15 +1545,16 @@
           ;; Mark the location of each optional. Note that we do this even if
           ;; the variable will be specially bound.
           (setf (values new-env context)
-                (bind-vars optvars new-env context))
+                (bind-vars optvars new-env context decls))
           ;; Add everything to opt-key-indices.
           (dolist (var optvars)
-            (push (cons var (frame-offset (var-info var new-env)))
-                  opt-key-indices))))
+            (let ((info (var-info var new-env)))
+              (push info igninfos)
+              (push (cons var (frame-offset info)) opt-key-indices)))))
       (when rest
         (assemble context m:listify-rest-args max-count)
         (setf (values new-env context)
-              (bind-vars (list rest) new-env context))
+              (bind-vars (list rest) new-env context decls))
         (cond ((or (member rest specials)
                    (globally-special-p rest env))
                (assemble context m:ref (frame-offset (var-info rest new-env)))
@@ -1493,7 +1562,9 @@
                (incf special-binding-count 1)
                (setq new-env (add-specials (list rest) new-env)))
               (t
-               (maybe-emit-encell (var-info rest new-env) context))))
+               (let ((info (var-info rest new-env)))
+                 (push info igninfos)
+                 (maybe-emit-encell info context)))))
       (when key-p
         ;; Generate code to parse the key args. As with optionals, we don't do
         ;; defaulting yet.
@@ -1505,9 +1576,10 @@
             (new-literal-index key-name context)))
         (let ((keyvars (mapcar #'cadar keys)))
           (setf (values new-env context)
-                (bind-vars keyvars new-env context))
+                (bind-vars keyvars new-env context decls))
           (dolist (var keyvars)
             (let ((info (var-info var new-env)))
+              (push info igninfos)
               (push (cons var (frame-offset info)) opt-key-indices)))))
       ;; Generate defaulting code for optional args, and special-bind them
       ;; if necessary.
@@ -1533,7 +1605,7 @@
                                                supplied-var next-optional-label
                                                optional-special-p supplied-special-p
                                                context new-env
-                                               default-env))
+                                               default-env decls))
               ;; set the default env for later bindings.
               (let* ((ovar (cons optional-var
                                  (var-info optional-var new-env)))
@@ -1542,6 +1614,8 @@
                                    (var-info supplied-var new-env))))
                      (newvars
                        (if svar (list svar ovar) (list ovar))))
+                (when supplied-var
+                  (push (cdr svar) igninfos))
                 (setf default-env
                       (make-lexical-environment
                        default-env
@@ -1577,7 +1651,7 @@
                                                supplied-var next-key-label
                                                key-special-p supplied-special-p
                                                context new-env
-                                               default-env))
+                                               default-env decls))
               ;; set the default env for later bindings.
               (let* ((ovar (cons key-var
                                  (var-info key-var new-env)))
@@ -1586,6 +1660,8 @@
                                    (var-info supplied-var new-env))))
                      (newvars
                        (if svar (list svar ovar) (list ovar))))
+                (when supplied-var
+                  (push (cdr svar) igninfos))
                 (setf default-env
                       (make-lexical-environment
                        default-env
@@ -1600,12 +1676,13 @@
                         new-env context :block-name block-name)
           (compile-let* aux `((declare (special ,@specials))) body
                         new-env context))
-      (emit-unbind context special-binding-count))))
+      (emit-unbind context special-binding-count)
+      (warn-ignorance igninfos))))
 
 ;;; Compile an optional/key item and return the resulting environment
 ;;; and context.
 (defun compile-optional/key-item (var defaulting-form var-index supplied-var next-label
-                                  var-specialp supplied-specialp context env default-env)
+                                  var-specialp supplied-specialp context env default-env decls)
   (flet ((default (suppliedp specialp var info)
            (cond (suppliedp
                   (cond (specialp
@@ -1639,7 +1716,7 @@
           (var-info (var-info var env)))
       (when supplied-var
         (setf (values env context)
-              (bind-vars (list supplied-var) env context)))
+              (bind-vars (list supplied-var) env context decls)))
       (let ((supplied-info (var-info supplied-var env)))
         (emit-jump-if-supplied context var-index supplied-label)
         (default nil var-specialp var var-info)

@@ -72,28 +72,31 @@
 
 ;;; Our info for lexical bindings (variable and function).
 (defstruct (lexical-info
-            (:constructor make-lexical-info
-                (frame-offset cfunction)))
+            (:constructor make-lexical-info (frame-offset cfunction)))
   ;; Register index for this lvar.
   (frame-offset (missing-arg) :read-only t :type (integer 0))
   ;; Cfunction this lvar belongs to (i.e. is bound by)
-  (cfunction (missing-arg) :read-only t :type cfunction))
+  (cfunction (missing-arg) :read-only t :type cfunction)
+  ;; Has the variable been read (for cl:ignore tracking).
+  (readp nil :type boolean))
 
 ;;; Our info for specifically variable bindings.
 ;;; (while function bindings can be closed over, they can't be modified,
 ;;;  so we don't really care.)
 (defstruct (lexical-variable-info
-            (:constructor make-lexical-variable-info
-                (frame-offset cfunction))
+            (:constructor make-lexical-variable-info (frame-offset cfunction))
             (:include lexical-info))
   (closed-over-p nil :type boolean)
   (setp nil :type boolean))
 
 (defun frame-offset (lex-desc)
   (lexical-info-frame-offset (trucler:identity lex-desc)))
-
 (defun lvar-cfunction (lex-desc)
   (lexical-info-cfunction (trucler:identity lex-desc)))
+(defun lvar-readp (lex-desc)
+  (lexical-info-readp (trucler:identity lex-desc)))
+(defun (setf lvar-readp) (new lex-desc)
+  (setf (lexical-info-readp (trucler:identity lex-desc)) new))
 
 (defun closed-over-p (lvar-desc)
   (lexical-variable-info-closed-over-p (trucler:identity lvar-desc)))
@@ -112,10 +115,11 @@
 (defun indirect-lexical-p (lvar)
   (and (closed-over-p lvar) (setp lvar)))
 
-(defun make-lexical-variable (name frame-offset cfunction)
+(defun make-lexical-variable (name frame-offset cfunction &key ignore)
   (make-instance 'trucler:lexical-variable-description
     :name name
-    :identity (make-lexical-variable-info frame-offset cfunction)))
+    :identity (make-lexical-variable-info frame-offset cfunction)
+    :ignore ignore))
 
 (defun make-symbol-macro (name expansion)
   (make-instance 'trucler:symbol-macro-description
@@ -124,9 +128,9 @@
 (defun globally-special-p (symbol env)
   (typep (var-info symbol env) 'trucler:global-special-variable-description))
 
-(defun make-local-function (name frame-offset cfunction)
+(defun make-local-function (name frame-offset cfunction &key ignore)
   (make-instance 'trucler:local-function-description
-    :name name
+    :name name :ignore ignore
     :identity (make-lexical-info frame-offset cfunction)))
 
 (defun make-local-macro (name expander)

@@ -41,6 +41,29 @@
              (format stream "~s is not a valid variable name"
                      (name condition)))))
 
+(define-condition used (style-warning)
+  ((%name :initarg :name :reader name)
+   (%kind :initarg :kind :reader kind))
+  (:report (lambda (condition stream)
+             (format stream "~:(~a~) ~s was declared ~s, but was still used"
+                     (kind condition) (name condition) 'cl:ignore))))
+
+(define-condition unused (style-warning)
+  ((%name :initarg :name :reader name)
+   (%kind :initarg :kind :reader kind :type (member function variable)))
+  (:report (lambda (condition stream)
+             (format stream "Unused ~(~a~) ~s"
+                     (kind condition) (name condition)))))
+
+(define-condition set-unused (style-warning)
+  ((%name :initarg :name :reader name)
+   ;; In practice local function bindings cannot be modified,
+   ;; so this field is a bit pointless. It's in for symmetry.
+   (%kind :initarg :kind :reader kind :type (member function variable)))
+  (:report (lambda (condition stream)
+             (format stream "~:(~a~) ~s set but not used"
+                     (kind condition) (name condition)))))
+
 (define-condition not-function-name (program-error)
   ((%name :initarg :name :reader name))
   (:report (lambda (condition stream)
