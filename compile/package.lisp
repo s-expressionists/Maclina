@@ -31,4 +31,6 @@
            #:name
            #:unknown-reference-resolution #:resolve-reference
            #:resolve-function #:resolve-macro
-           #:assumed-function-now-macro))
+           #:assumed-function-now-macro)
+  ;; PC map info related stuff
+  (:export #:*source-locations*))

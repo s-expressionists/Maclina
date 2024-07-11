@@ -59,7 +59,9 @@
   ;; For example, a cfunction appearing literally in the code (for whatever
   ;; odd reason) gets a constant-info, distinguishing it from a cfunction
   ;; in the vector which will be linked to an actual function.
-  (literals (make-array 0 :fill-pointer 0 :adjustable t) :read-only t))
+  (literals (make-array 0 :fill-pointer 0 :adjustable t) :read-only t)
+  ;; Each entry in this vector is a map-info.
+  (pc-map (make-array 0 :fill-pointer 0 :adjustable t) :read-only t))
 
 (defstruct (constant-info (:constructor make-constant-info (value)))
   (value (error "missing arg") :read-only t))
@@ -171,6 +173,9 @@
   (let ((closed (cfunction-closed (context-function context))))
     (or (position info closed)
         (vector-push-extend info closed))))
+
+(defun push-map-info (info context)
+  (vector-push-extend info (cmodule-pc-map (context-module context))))
 
 (defun new-context (parent &key (receiving (context-receiving parent))
                              (dynenv nil) ; prepended
@@ -563,6 +568,19 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
+;;; Source locations
+;;;
+
+(defvar *source-locations*)
+
+(defun form-source-location (form &optional default)
+  (if (boundp '*source-locations*)
+      (multiple-value-bind (sl presentp) (gethash form *source-locations*)
+        (if presentp sl default))
+      default))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
 ;;; Compilation
 ;;;
 
@@ -609,12 +627,21 @@
   (eval-progn `(,form) environment))
 
 (defun compile-form (form env context)
-  (typecase form
-    (symbol (compile-symbol (var-info form env) form env context))
-    ((cons symbol)
-     (compile-combination (fun-info (car form) env) form env context))
-    (cons (compile-lambda-form form env context))
-    (t (compile-literal form env context))))
+  (let* ((source-location (form-source-location form)) end)
+    (when source-location
+      (setf end (make-label))
+      (let ((start (make-label)))
+        (push-map-info (make-instance 'm:source-info
+                         :start start :end end :source source-location)
+                       context)
+        (emit-label context start)))
+    (typecase form
+      (symbol (compile-symbol (var-info form env) form env context))
+      ((cons symbol)
+       (compile-combination (fun-info (car form) env) form env context))
+      (cons (compile-lambda-form form env context))
+      (t (compile-literal form env context)))
+    (when source-location (emit-label context end))))
 
 (defun compile-literal (form env context)
   (declare (ignore env))
@@ -1924,17 +1951,30 @@
 (defmethod load-literal-info (client (info env-info) env)
   (m:link-environment client (run-time-environment m:*client* env)))
 
+(defgeneric link-map-info (map-info)
+  (:method-combination progn))
+
+(defmethod link-map-info progn ((info m:map-info))
+  (setf (m:start info) (annotation-module-position (m:start info))
+        (m:end info) (annotation-module-position (m:end info))))
+
+(defun link-pc-map (pc-map)
+  ;; Make a non-adjustable vector.
+  (map 'vector (lambda (info) (link-map-info info) info) pc-map))
+
 ;;; Run down the hierarchy and link the compile time representations
 ;;; of modules and functions together into runtime objects.
 (defun link-load (cmodule env)
   (let* ((bytecode (link cmodule))
          (cmodule-literals (cmodule-literals cmodule))
+         (pc-map (cmodule-pc-map cmodule))
          (literal-length (length cmodule-literals))
          (literals (make-array literal-length))
          (bytecode-module
            (m:make-bytecode-module
             :bytecode bytecode
-            :literals literals))
+            :literals literals
+            :pc-map (link-pc-map pc-map)))
          (client m:*client*))
     ;; Create the real function objects.
     (loop for cfunction across (cmodule-cfunctions cmodule)

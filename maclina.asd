@@ -20,6 +20,7 @@
   :components ((:file "machine")
                (:file "arg-conditions")
                (:file "structures" :depends-on ("machine"))
+               (:file "map-info" :depends-on ("structures" "machine"))
                (:file "link" :depends-on ("machine"))
                (:file "access" :depends-on ("machine"))
                (:file "disassemble" :depends-on ("structures" "machine"))))

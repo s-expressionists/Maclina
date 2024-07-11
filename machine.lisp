@@ -23,7 +23,12 @@
 	   #:fdefinition #:fmakunbound #:fboundp)
   (:export #:lambda-parameters-limit #:call-arguments-limit
            #:lambda-list-keywords #:multiple-values-limit)
-  (:export #:disassemble #:display-instruction))
+  (:export #:disassemble #:display-instruction)
+  ;; PC map stuff
+  (:export #:bytecode-module-pc-map
+           #:map-info #:start #:end
+           #:source-info #:source)
+  (:export #:info-at #:most-specific-info-at #:source-at))
 
 ;;;; Definition of the virtual machine, used by both the compiler and the VM.
 
