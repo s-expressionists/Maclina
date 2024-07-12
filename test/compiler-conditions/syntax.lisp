@@ -7,19 +7,25 @@
 ;;; These tests are not ANSI-required, because in ANSI CL the effects of running
 ;;; invalid code are often undefined. But we want to define them as failures.
 
-(defun compilation-fails (form)
+(defun compilation-fails (form source)
   ;; Allow either ccompile signaling an error, or returning a failure indication.
   (nth-value 2 (handler-case (ccompile nil `(lambda () ,form))
                  (error (e)
                    ;; if we do get an error, make sure it's a PROGRAM-ERROR.
                    (5am:is-true (typep e 'program-error)
                                 "on form ~s, compiler signaled ~s and not a program error" form e)
+                   (5am:is (eql source (maclina.compile:source e))
+                           "on form ~s, compiler error had incorrect source location ~s"
+                           form (maclina.compile:source e))
                    (values nil t t)))))
 
 (5am:test special-form-syntax
   (flet ((f (form)
-           (5am:is-true (compilation-fails form)
-                        "Compilation of ~s did not fail" form)))
+           (let ((source (make-symbol "SOURCE"))
+                 (maclina.compile:*source-locations* (make-hash-table)))
+             (setf (gethash form maclina.compile:*source-locations*) source)
+             (5am:is-true (compilation-fails form source)
+                          "Compilation of ~s did not fail" form))))
     (mapc #'f
           '((block) (block . 2) (block nil . 3) (block 4)
             (catch) (catch . 5) (catch nil . 6)
@@ -65,5 +71,10 @@
 (5am:test unknown-exit
   ;; these must fail immediately, unlike unknown references, since they
   ;; cannot be resolved
-  (compilation-fails '(return-from a))
-  (compilation-fails '(go a)))
+  (let ((form1 '(return-from a)) (form2 '(go a))
+        (source (make-symbol "SOURCE"))
+        (maclina.compile:*source-locations* (make-hash-table)))
+    (setf (gethash form1 maclina.compile:*source-locations*) source
+          (gethash form2 maclina.compile:*source-locations*) source)
+    (compilation-fails form1 source)
+    (compilation-fails form2 source)))

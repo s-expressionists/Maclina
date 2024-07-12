@@ -842,7 +842,7 @@
                             (compile-form form env body-context)
                             (setq remaining nrem))))
                    (error 'improper-body
-                          :body forms :context (context-source context))))))
+                          :body forms :source (context-source context))))))
 
 (defun compile-locally (body env context)
   (multiple-value-bind (body decls) (parse-body body)
@@ -895,9 +895,9 @@
 (defun add-declarations (env declarations)
   (add-specials (extract-specials declarations) env))
 
-(defun canonicalize-binding (binding)
+(defun canonicalize-binding (binding &optional source)
   (if (consp binding)
-      (destructure-syntax (binding name value) (binding :rest nil)
+      (destructure-syntax (binding name value) (binding :rest nil :source source)
         (values name value))
       (values binding nil)))
 
@@ -920,7 +920,7 @@
 (defmethod compile-special ((operator (eql 'let)) form env context)
   ;; This is really long because we make an environment manually rather
   ;; than use bind-vars, which would be even more awkward and cons more.
-  (destructure-syntax (let bindings . body) (form)
+  (destructure-syntax (let bindings . body) (form :source (context-source context))
     (unless (proper-list-p bindings)
       (error 'improper-bindings
              :bindings bindings
@@ -943,7 +943,9 @@
         ;; We collect conses (name . info).
         (dolist (binding bindings)
           (push (multiple-value-bind (var valf)
-                    (canonicalize-binding binding)
+                    (canonicalize-binding binding
+                                          (expr-source-location
+                                           binding (context-source context)))
                   (unless (symbolp var)
                     (error 'variable-not-symbol
                            :name var
@@ -1011,7 +1013,9 @@
         (inner-context context)
         (lexinfos nil))
     (dolist (binding bindings)
-      (multiple-value-bind (var valf) (canonicalize-binding binding)
+      (multiple-value-bind (var valf)
+          (canonicalize-binding
+           binding (expr-source-location binding (context-source context)))
         (unless (symbolp var)
           (error 'variable-not-symbol :name var
                  :source (expr-source-location binding (context-source context))))
@@ -1043,18 +1047,21 @@
     (warn-ignorance lexinfos (context-source context))))
 
 (defmethod compile-special ((operator (eql 'let*)) form env context)
-  (destructure-syntax (let* bindings . body) (form)
+  (destructure-syntax (let* bindings . body)
+      (form :source (context-source context))
     (multiple-value-bind (body decls) (parse-body body)
       (compile-let* bindings decls body env context))))
 
 (defmethod compile-special ((operator (eql 'flet)) form env context)
-  (destructure-syntax (flet definitions . body) (form)
+  (destructure-syntax (flet definitions . body)
+      (form :source (context-source context))
     (unless (proper-list-p definitions)
       (error 'improper-bindings :bindings definitions
              :source (expr-source-location definitions (context-source context))))
     (loop for definition in definitions
+          for source = (expr-source-location definition (context-source context))
           do (destructure-syntax (flet-definition name lambda-list . body)
-                 (definition :rest nil)
+                 (definition :rest nil :source source)
                (compile-lambda-expression
                 `(lambda ,lambda-list ,@body)
                 env context :name `(flet ,name)
@@ -1070,7 +1077,8 @@
          (context-source context))))))
 
 (defmethod compile-special ((operator (eql 'labels)) form env context)
-  (destructure-syntax (labels definitions . body) (form)
+  (destructure-syntax (labels definitions . body)
+      (form :source (context-source context))
     (unless (proper-list-p definitions)
       (error 'improper-bindings :bindings definitions
              :source (expr-source-location definitions (context-source context))))
@@ -1092,7 +1100,7 @@
                        for (name fun)
                          = (destructure-syntax
                                (labels-binding name lambda-list . body)
-                               (definition :rest nil)
+                               (definition :rest nil :source source)
                              (let ((bname (fun-name-block-name name source)))
                                (list name
                                      (compile-lambda
@@ -1189,7 +1197,8 @@
                                 context)))))))
 
 (defmethod compile-special ((op (eql 'if)) form env context)
-  (destructure-syntax (if condition then &optional else) (form)
+  (destructure-syntax (if condition then &optional else)
+      (form :source (context-source context))
     (compile-form condition env (new-context context :receiving 1))
     (let ((then-label (make-label))
           (done-label (make-label)))
@@ -1233,7 +1242,8 @@
                             :source (context-source context)))))
 
 (defmethod compile-special ((op (eql 'function)) form env context)
-  (destructure-syntax (function fnameoid) (form)
+  (destructure-syntax (function fnameoid)
+      (form :source (context-source context))
     (compile-function-lookup fnameoid env context)
     (when (eql (context-receiving context) t)
       (assemble context m:pop))))
@@ -1298,7 +1308,7 @@
            (emit-exit context label)))))
 
 (defmethod compile-special ((op (eql 'go)) form env context)
-  (destructure-syntax (go tag) (form)
+  (destructure-syntax (go tag) (form :source (context-source context))
     (unless (go-tag-p tag) (error 'go-tag-not-tag
                                   :tag tag :source (context-source context)))
     (let ((pair (assoc tag (tags env))))
@@ -1338,11 +1348,12 @@
         (maybe-emit-entry-close context dynenv-info)))))
 
 (defmethod compile-special ((op (eql 'block)) form env context)
-  (destructure-syntax (block name . body) (form)
+  (destructure-syntax (block name . body) (form :source (context-source context))
     (compile-block name body env context)))
 
 (defmethod compile-special ((op (eql 'return-from)) form env context)
-  (destructure-syntax (return-from name &optional value) (form)
+  (destructure-syntax (return-from name &optional value)
+      (form :source (context-source context))
     (unless (symbolp name) (error 'block-name-not-symbol
                                   :name name
                                   :source (context-source context)))
@@ -1353,7 +1364,7 @@
           (error 'no-return :name name :source (context-source context))))))
 
 (defmethod compile-special ((op (eql 'catch)) form env context)
-  (destructure-syntax (catch tag . body) (form)
+  (destructure-syntax (catch tag . body) (form :source (context-source context))
     (let ((target (make-label)))
       (compile-form tag env (new-context context :receiving 1))
       (emit-catch context target)
@@ -1362,13 +1373,14 @@
       (emit-label context target))))
 
 (defmethod compile-special ((op (eql 'throw)) form env context)
-  (destructure-syntax (throw tag result) (form)
+  (destructure-syntax (throw tag result) (form :source (context-source context))
     (compile-form tag env (new-context context :receiving 1))
     (compile-form result env (new-context context :receiving t))
     (assemble context m:throw)))
 
 (defmethod compile-special ((op (eql 'progv)) form env context)
-  (destructure-syntax (progv symbols values . body) (form)
+  (destructure-syntax (progv symbols values . body)
+      (form :source (context-source context))
     (compile-form symbols env (new-context context :receiving 1))
     (compile-form values env (new-context context :receiving 1))
     (assemble context m:progv (env-index context))
@@ -1377,7 +1389,8 @@
 
 (defmethod compile-special ((op (eql 'unwind-protect))
                             form env context)
-  (destructure-syntax (unwind-protect protected . cleanup) (form)
+  (destructure-syntax (unwind-protect protected . cleanup)
+      (form :source (context-source context))
     ;; Build a cleanup thunk.
     ;; The 0 is a dumb KLUDGE to let the cleanup forms be compiled in
     ;; non-values contexts, which might be more efficient.
@@ -1392,11 +1405,12 @@
     (assemble context m:cleanup)))
 
 (defmethod compile-special ((op (eql 'quote)) form env context)
-  (destructure-syntax (quote thing) (form)
+  (destructure-syntax (quote thing) (form :source (context-source context))
     (compile-literal thing env context)))
 
 (defmethod compile-special ((op (eql 'load-time-value)) form env context)
-  (destructure-syntax (load-time-value form &optional read-only-p) (form)
+  (destructure-syntax (load-time-value form &optional read-only-p)
+      (form :source (context-source context))
     (check-type read-only-p boolean)
     ;; Stick info about the LTV into the literals vector. It will be handled
     ;; later by COMPILE or a file compiler.
@@ -1413,15 +1427,18 @@
          (assemble context m:pop))))))
 
 (defmethod compile-special ((op (eql 'symbol-macrolet)) form env context)
-  (destructure-syntax (symbol-macrolet bindings . body) (form)
+  (destructure-syntax (symbol-macrolet bindings . body)
+      (form :source (context-source context))
     (unless (proper-list-p bindings)
       (error 'improper-bindings :bindings bindings
              :source (expr-source-location bindings (context-source context))))
     (let ((smacros
             (loop for binding in bindings
+                  for source
+                    = (expr-source-location binding (context-source context))
                   collect (destructure-syntax
                               (symbol-macrolet-binding name expansion)
-                              (binding :rest nil)
+                              (binding :rest nil :source source)
                             (unless (symbolp name)
                               (error 'variable-not-symbol
                                      :name name
@@ -1465,7 +1482,8 @@
                                  (apply #'compile-link lexpr env keys)))))
 
 (defmethod compile-special ((op (eql 'macrolet)) form env context)
-  (destructure-syntax (macrolet bindings . body) (form)
+  (destructure-syntax (macrolet bindings . body)
+      (form :source (context-source context))
     (unless (proper-list-p bindings)
       (error 'improper-bindings
              :bindings bindings
@@ -1473,9 +1491,14 @@
     (let ((macros
             (loop with env = (lexenv-for-macrolet env)
                   for binding in bindings
+                  for source = (expr-source-location
+                                binding (context-source context))
                   collect (destructure-syntax
                               (macrolet-binding name lambda-list . body)
-                              (binding :rest nil)
+                              (binding :rest nil :source source)
+                            (unless (symbolp name)
+                              (error 'macro-not-symbol
+                                     :name name :source source))
                             (let* ((macrof (compute-macroexpander
                                             name lambda-list body env))
                                    (info (make-local-macro name macrof)))
@@ -1505,7 +1528,8 @@
      (assemble context m:fdesignator (env-index context)))))
 
 (defmethod compile-special ((op (eql 'multiple-value-call)) form env context)
-  (destructure-syntax (multiple-value-call function-form . forms) (form)
+  (destructure-syntax (multiple-value-call function-form . forms)
+      (form :source (context-source context))
     (compile-fdesignator function-form env context)
     (if forms
         (let ((first (first forms))
@@ -1520,7 +1544,8 @@
         (emit-call context 0))))
 
 (defmethod compile-special ((op (eql 'multiple-value-prog1)) form env context)
-  (destructure-syntax (multiple-value-prog1 first-form . forms) (form)
+  (destructure-syntax (multiple-value-prog1 first-form . forms)
+      (form :source (context-source context))
     (compile-form first-form env context)
     (unless (member (context-receiving context) '(0 1))
       (assemble context m:push-values))
@@ -1545,7 +1570,8 @@
                     :source (expr-source-location situations source))))
 
 (defmethod compile-special ((op (eql 'eval-when)) form env context)
-  (destructure-syntax (eval-when situations . body) (form)
+  (destructure-syntax (eval-when situations . body)
+      (form :source (context-source context))
     (check-eval-when-situations situations (context-source context))
     (if (or (member 'cl:eval situations) (member :execute situations))
         (compile-progn body env context)
@@ -1553,7 +1579,7 @@
 
 (defmethod compile-special ((op (eql 'the)) form env context)
   ;; ignore
-  (destructure-syntax (the type form) (form)
+  (destructure-syntax (the type form) (form :source (context-source context))
     (declare (ignore type))
     (compile-form form env context)))
 

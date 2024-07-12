@@ -41,6 +41,14 @@
              (format stream "~s is not a valid variable name"
                      (name condition)))))
 
+;;; CLHS says macrolet names are function names, but a (setf foo) name
+;;; for a macro is meaningless. DEFMACRO only accepts symbols.
+(define-condition macro-not-symbol (compiler-program-error)
+  ((%name :initarg :name :reader name))
+  (:report (lambda (condition stream)
+             (format stream "~s is not a valid macro name"
+                     (name condition)))))
+
 (define-condition used (compiler-program-style-warning)
   ((%name :initarg :name :reader name)
    (%kind :initarg :kind :reader kind))
@@ -117,6 +125,19 @@
   (:report (lambda (condition stream)
              (format stream "Declarations are not a proper list: ~s"
                      (declarations condition)))))
+
+;;; Used at compile time, so they are program-conditions
+;;; and have a SOURCE slot.
+(define-condition wrong-number-of-arguments (compiler-program-error
+                                             arg:wrong-number-of-arguments)
+  ())
+
+(define-condition odd-keywords (compiler-program-error arg:odd-keywords)
+  ())
+
+(define-condition unrecognized-keyword-argument (compiler-program-error
+                                                 arg:unrecognized-keyword-argument)
+  ())
 
 ;;; from cleavir
 (defun proper-list-p (object)
