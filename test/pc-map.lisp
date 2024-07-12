@@ -54,9 +54,5 @@
                   (5am:fail "Unexpected source location ~s" source)
                   (setf success nil) (loop-finish)))
             finally (when success (5am:pass)))
-      (if outerp
-          (5am:pass)
-          (5am:fail "Missing source info for outer call"))
-      (if innerp
-          (5am:pass)
-          (5am:fail "Missing source info for inner call")))))
+      (5am:is-true outerp "Missing source info for outer call")
+      (5am:is-true innerp "Missing source info for inner call"))))
