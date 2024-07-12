@@ -103,7 +103,9 @@
   ;; The next available register index.
   (frame-end 0)
   ;; The cfunction we're compiling.
-  function)
+  function
+  ;; Client-defined source info, or NIL if none.
+  (source nil))
 
 (defun context-module (context)
   (cfunction-cmodule (context-function context)))
@@ -180,14 +182,16 @@
 (defun new-context (parent &key (receiving (context-receiving parent))
                              (dynenv nil) ; prepended
                              (frame-end (context-frame-end parent) fep)
-                             (function (context-function parent)))
+                             (function (context-function parent))
+                             (source (context-source parent)))
   (when fep
     (setf (cfunction-%nlocals function)
           (max (cfunction-%nlocals function) frame-end)))
   (make-context :receiving receiving
                 :dynenv (append dynenv (context-dynenv parent))
                 :frame-end frame-end
-                :function function))
+                :function function
+                :source source))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -542,7 +546,8 @@
          (values (make-lexical-environment env :vars new-vars)
                  (new-context context :frame-end frame-end)))
       (when (constantp (first vars) env)
-        (error 'bind-constant :name (first vars))))))
+        (error 'bind-constant
+               :name (first vars) :source (context-source context))))))
 
 ;;; Like the above, but function namespace.
 (defun bind-fvars (funs env context declarations)
@@ -573,7 +578,7 @@
 
 (defvar *source-locations*)
 
-(defun form-source-location (form &optional default)
+(defun expr-source-location (form &optional default)
   (if (boundp '*source-locations*)
       (multiple-value-bind (sl presentp) (gethash form *source-locations*)
         (if presentp sl default))
@@ -627,7 +632,11 @@
   (eval-progn `(,form) environment))
 
 (defun compile-form (form env context)
-  (let* ((source-location (form-source-location form)) end)
+  (let* ((source-location (expr-source-location form))
+         end
+         (context (if source-location
+                      (new-context context :source source-location)
+                      context)))
     (when source-location
       (setf end (make-label))
       (let ((start (make-label)))
@@ -706,7 +715,8 @@
   (declare (ignore form env))
   (setf (lvar-readp info) t)
   (when (eq (trucler:ignore info) 'cl:ignore)
-    (warn 'used :name (trucler:name info) :kind 'variable))
+    (warn 'used :name (trucler:name info) :kind 'variable
+          :source (context-source context)))
   (unless (eql (context-receiving context) 0)
     (cond ((eq (lvar-cfunction info) (context-function context))
            (assemble context m:ref (frame-offset info)))
@@ -731,7 +741,7 @@
       (assemble context m:pop))))
 
 (defmethod compile-symbol ((info null) form env context)
-  (warn-unknown 'unknown-variable :name form)
+  (warn-unknown 'unknown-variable :name form :source (context-source context))
   (unless (eql (context-receiving context) 0)
     (assemble context m:symbol-value (value-cell-index form context))
     (when (eql (context-receiving context) 't)
@@ -763,7 +773,8 @@
     (compile-call (rest form) env context)))
 
 (defmethod compile-combination ((info null) form env context)
-  (warn-unknown 'unknown-function :name (first form))
+  (warn-unknown 'unknown-function
+                :name (first form) :source (context-source context))
   (emit-fdefinition context (fdefinition-index (first form) context))
   (compile-call (rest form) env context))
 
@@ -771,7 +782,8 @@
                                 form env context)
   (setf (lvar-readp info) t)
   (when (eq (trucler:ignore info) 'cl:ignore)
-    (warn 'used :name (trucler:name info) :kind 'function))
+    (warn 'used :name (trucler:name info)
+                :kind 'function :source (context-source context)))
   (reference-lexical-variable info context)
   (compile-call (rest form) env context))
 
@@ -829,18 +841,19 @@
                            (t
                             (compile-form form env body-context)
                             (setq remaining nrem))))
-                   (error 'improper-body :body forms)))))
+                   (error 'improper-body
+                          :body forms :context (context-source context))))))
 
 (defun compile-locally (body env context)
   (multiple-value-bind (body decls) (parse-body body)
     (compile-progn body (add-declarations env decls) context)))
 
-(defun fun-name-block-name (fun-name)
+(defun fun-name-block-name (fun-name &optional source)
   (typecase fun-name
     (symbol fun-name)
     ((cons (eql setf) (cons symbol null)) (second fun-name))
     ;; TODO: Client defined additional function names?
-    (t (error 'not-function-name :name fun-name))))
+    (t (error 'not-function-name :name fun-name :source source))))
 
 (defmethod compile-special ((operator (eql 'progn)) form env context)
   (compile-progn (rest form) env context))
@@ -889,24 +902,29 @@
       (values binding nil)))
 
 ;;; Given a list of lexical infos, warn if any of them are unused.
-(defun warn-ignorance (infos)
+(defun warn-ignorance (infos &optional source)
   (dolist (info infos)
     (when (and (null (trucler:ignore info)) ; not IGNORE or IGNORABLE
                (not (lvar-readp info))) ; not used
       (etypecase info
         (trucler:lexical-variable-description
          (if (setp info)
-             (warn 'set-unused :name (trucler:name info) :kind 'variable)
-             (warn 'unused :name (trucler:name info) :kind 'variable)))
+             (warn 'set-unused :name (trucler:name info)
+                               :kind 'variable :source source)
+             (warn 'unused :name (trucler:name info)
+                           :kind 'variable :source source)))
         (trucler:local-function-description
-         (warn 'unused :name (trucler:name info) :kind 'function))))))
+         (warn 'unused :name (trucler:name info)
+                       :kind 'function :source source))))))
 
 (defmethod compile-special ((operator (eql 'let)) form env context)
   ;; This is really long because we make an environment manually rather
   ;; than use bind-vars, which would be even more awkward and cons more.
   (destructure-syntax (let bindings . body) (form)
     (unless (proper-list-p bindings)
-      (error 'improper-bindings :bindings bindings))
+      (error 'improper-bindings
+             :bindings bindings
+             :source (expr-source-location bindings (context-source context))))
     (multiple-value-bind (body decls) (parse-body body :whole form)
       (let* ((specials (extract-specials decls))
              (frame-start (context-frame-end context))
@@ -927,7 +945,10 @@
           (push (multiple-value-bind (var valf)
                     (canonicalize-binding binding)
                   (unless (symbolp var)
-                    (error 'variable-not-symbol :name var))
+                    (error 'variable-not-symbol
+                           :name var
+                           :source (expr-source-location
+                                    binding (context-source context))))
                   (compile-form valf env valc)
                   (cons var
                         (cond
@@ -978,19 +999,22 @@
           ;; Finally, the actual body.
           (compile-progn body post-binding-env post-binding-context)
           (emit-unbind post-binding-context special-binding-count)
-          (warn-ignorance igninfos))))))
+          (warn-ignorance igninfos (context-source context)))))))
 
 (defun compile-let* (bindings decls body env context
                      &key (block-name nil block-name-p))
   (unless (proper-list-p bindings)
-    (error 'improper-bindings :bindings bindings))
+    (error 'improper-bindings :bindings bindings
+           :source (expr-source-location bindings (context-source context))))
   (let ((special-binding-count 0)
         (specials (extract-specials decls))
         (inner-context context)
         (lexinfos nil))
     (dolist (binding bindings)
       (multiple-value-bind (var valf) (canonicalize-binding binding)
-        (unless (symbolp var) (error 'variable-not-symbol :name var))
+        (unless (symbolp var)
+          (error 'variable-not-symbol :name var
+                 :source (expr-source-location binding (context-source context))))
         (compile-form valf env (new-context inner-context :receiving 1))
         (cond ((or (member var specials) (globally-special-p var env))
                (incf special-binding-count)
@@ -1016,7 +1040,7 @@
           (compile-block block-name body new-env inner-context)
           (compile-progn body new-env inner-context)))
     (emit-unbind context special-binding-count)
-    (warn-ignorance lexinfos)))
+    (warn-ignorance lexinfos (context-source context))))
 
 (defmethod compile-special ((operator (eql 'let*)) form env context)
   (destructure-syntax (let* bindings . body) (form)
@@ -1026,14 +1050,15 @@
 (defmethod compile-special ((operator (eql 'flet)) form env context)
   (destructure-syntax (flet definitions . body) (form)
     (unless (proper-list-p definitions)
-      (error 'improper-bindings :bindings definitions))
+      (error 'improper-bindings :bindings definitions
+             :source (expr-source-location definitions (context-source context))))
     (loop for definition in definitions
           do (destructure-syntax (flet-definition name lambda-list . body)
                  (definition :rest nil)
                (compile-lambda-expression
                 `(lambda ,lambda-list ,@body)
                 env context :name `(flet ,name)
-                :block-name (fun-name-block-name name))))
+                :block-name (fun-name-block-name name (context-source context)))))
     (emit-bind context (length definitions) (context-frame-end context))
     (multiple-value-bind (body decls) (parse-body body)
       (multiple-value-bind (env context)
@@ -1041,15 +1066,19 @@
         (compile-progn body (add-declarations env decls) context)
         (warn-ignorance
          (loop for (name) in definitions
-               collect (fun-info name env)))))))
+               collect (fun-info name env))
+         (context-source context))))))
 
 (defmethod compile-special ((operator (eql 'labels)) form env context)
   (destructure-syntax (labels definitions . body) (form)
     (unless (proper-list-p definitions)
-      (error 'improper-bindings :bindings definitions))
+      (error 'improper-bindings :bindings definitions
+             :source (expr-source-location definitions (context-source context))))
     (mapc (lambda (bind)
             (unless (proper-list-p bind)
-              (error 'improper-arguments :args bind)))
+              (error 'improper-arguments :args bind
+                                         :source (expr-source-location
+                                                  bind (context-source context)))))
           definitions)
     (multiple-value-bind (body decls) (parse-body body)
       (multiple-value-bind (new-env new-context)
@@ -1058,11 +1087,13 @@
                (igninfos nil)
                (closures
                  (loop for definition in definitions
+                       for source = (expr-source-location
+                                     definition (context-source context))
                        for (name fun)
                          = (destructure-syntax
                                (labels-binding name lambda-list . body)
                                (definition :rest nil)
-                             (let ((bname (fun-name-block-name name)))
+                             (let ((bname (fun-name-block-name name source)))
                                (list name
                                      (compile-lambda
                                       lambda-list body new-env module
@@ -1084,7 +1115,7 @@
                   do (reference-lexical-variable var new-context))
             (assemble context m:initialize-closure (cdr closure)))
           (compile-progn body (add-declarations new-env decls) new-context)
-          (warn-ignorance igninfos))))))
+          (warn-ignorance igninfos (context-source context)))))))
 
 (defgeneric compile-setq-1 (info var value-form environment context))
 
@@ -1109,7 +1140,7 @@
   (compile-setq-1-special var valf env context))
 
 (defmethod compile-setq-1 ((info null) var valf env context)
-  (warn-unknown 'unknown-variable :name var)
+  (warn-unknown 'unknown-variable :name var :source (context-source context))
   (compile-setq-1-special var valf env context))
 
 (defmethod compile-setq-1 ((info trucler:lexical-variable-description)
@@ -1134,7 +1165,8 @@
 (defmethod compile-special ((op (eql 'setq)) form env context)
   (let ((pairs (rest form)))
     (unless (proper-list-p pairs)
-      (error 'setq-uneven :remainder pairs))
+      (error 'setq-uneven :remainder pairs
+             :source (context-source context)))
     (if (null pairs)
         (unless (eql (context-receiving context) 0)
           (assemble context m:nil)
@@ -1143,11 +1175,14 @@
         (do ((pairs pairs (cddr pairs)))
             ((endp pairs))
           (unless (and (consp pairs) (consp (cdr pairs)))
-            (error 'setq-uneven :remainder pairs))
+            (error 'setq-uneven :remainder pairs :source (context-source context)))
           (let ((var (car pairs))
                 (valf (cadr pairs))
                 (rest (cddr pairs)))
-            (unless (symbolp var) (error 'variable-not-symbol :name var))
+            (unless (symbolp var)
+              (error 'variable-not-symbol
+                     :name var
+                     :source (expr-source-location var (context-source context))))
             (compile-setq-1 (var-info var env) var valf env
                             (if rest
                                 (new-context context :receiving 0)
@@ -1185,14 +1220,17 @@
          (trucler:local-function-description
           (setf (lvar-readp info) t)
           (when (eq (trucler:ignore info) 'cl:ignore)
-            (warn 'used :name (trucler:name info) :kind 'function))
+            (warn 'used :name (trucler:name info)
+                        :kind 'function :source (context-source context)))
           (unless (eql 0 (context-receiving context))
             (reference-lexical-variable info context)))
          (null
-          (warn-unknown 'unknown-function :name fnameoid)
+          (warn-unknown 'unknown-function
+                        :name fnameoid :source (context-source context))
           (unless (eql 0 (context-receiving context))
             (emit-fdefinition context (fdefinition-index fnameoid context)))))))
-    (t (error 'not-fnameoid :fnameoid fnameoid))))
+    (t (error 'not-fnameoid :fnameoid fnameoid
+                            :source (context-source context)))))
 
 (defmethod compile-special ((op (eql 'function)) form env context)
   (destructure-syntax (function fnameoid) (form)
@@ -1207,7 +1245,7 @@
         (new-tags (tags env))
         (tagbody-dynenv (gensym "TAG-DYNENV")))
     (unless (proper-list-p statements)
-      (error 'improper-body :body statements))
+      (error 'improper-body :body statements :source (context-source context)))
     (multiple-value-bind (env stmt-context-1)
         (bind-vars (list tagbody-dynenv) env context
                    ;; the dynenv is implicitly ignorable.
@@ -1261,14 +1299,16 @@
 
 (defmethod compile-special ((op (eql 'go)) form env context)
   (destructure-syntax (go tag) (form)
-    (unless (go-tag-p tag) (error 'go-tag-not-tag :tag tag))
+    (unless (go-tag-p tag) (error 'go-tag-not-tag
+                                  :tag tag :source (context-source context)))
     (let ((pair (assoc tag (tags env))))
       (if pair
           (compile-exit (cdr pair) context)
-          (error 'no-go :tag tag)))))
+          (error 'no-go :tag tag :source (context-source context))))))
 
 (defun compile-block (name body env context)
-  (unless (symbolp name) (error 'block-name-not-symbol :name name))
+  (unless (symbolp name) (error 'block-name-not-symbol
+                                :name name :source (context-source context)))
   (let ((block-dynenv (gensym "BLOCK-DYNENV")))
     (multiple-value-bind (env body-context-1)
         (bind-vars (list block-dynenv) env context
@@ -1303,12 +1343,14 @@
 
 (defmethod compile-special ((op (eql 'return-from)) form env context)
   (destructure-syntax (return-from name &optional value) (form)
-    (unless (symbolp name) (error 'block-name-not-symbol :name name))
+    (unless (symbolp name) (error 'block-name-not-symbol
+                                  :name name
+                                  :source (context-source context)))
     (compile-form value env (new-context context :receiving t))
     (let ((pair (assoc name (blocks env))))
       (if pair
           (compile-exit (cdr pair) context)
-          (error 'no-return :name name)))))
+          (error 'no-return :name name :source (context-source context))))))
 
 (defmethod compile-special ((op (eql 'catch)) form env context)
   (destructure-syntax (catch tag . body) (form)
@@ -1373,14 +1415,18 @@
 (defmethod compile-special ((op (eql 'symbol-macrolet)) form env context)
   (destructure-syntax (symbol-macrolet bindings . body) (form)
     (unless (proper-list-p bindings)
-      (error 'improper-bindings :bindings bindings))
+      (error 'improper-bindings :bindings bindings
+             :source (expr-source-location bindings (context-source context))))
     (let ((smacros
             (loop for binding in bindings
                   collect (destructure-syntax
                               (symbol-macrolet-binding name expansion)
                               (binding :rest nil)
                             (unless (symbolp name)
-                              (error 'variable-not-symbol :name name))
+                              (error 'variable-not-symbol
+                                     :name name
+                                     :source (expr-source-location
+                                              binding (context-source context))))
                             (cons name (make-symbol-macro name expansion))))))
       (compile-locally body (make-lexical-environment
                              env
@@ -1421,7 +1467,9 @@
 (defmethod compile-special ((op (eql 'macrolet)) form env context)
   (destructure-syntax (macrolet bindings . body) (form)
     (unless (proper-list-p bindings)
-      (error 'improper-bindings :bindings bindings))
+      (error 'improper-bindings
+             :bindings bindings
+             :source (expr-source-location bindings (context-source context))))
     (let ((macros
             (loop with env = (lexenv-for-macrolet env)
                   for binding in bindings
@@ -1484,17 +1532,21 @@
 (defmethod compile-special ((op (eql 'locally)) form env context)
   (compile-locally (rest form) env context))
 
-(defun check-eval-when-situations (situations)
+(defun check-eval-when-situations (situations &optional source)
   (unless (proper-list-p situations)
-    (error 'improper-situations :situations situations))
+    (error 'improper-situations
+           :situations situations
+           :source (expr-source-location situations source)))
   (loop for situation in situations
         unless (member situation '(cl:eval cl:compile cl:load
                                    :execute :compile-toplevel :load-toplevel))
-          do (error 'invalid-eval-when-situation :situation situation)))
+          do (error 'invalid-eval-when-situation
+                    :situation situation
+                    :source (expr-source-location situations source))))
 
 (defmethod compile-special ((op (eql 'eval-when)) form env context)
   (destructure-syntax (eval-when situations . body) (form)
-    (check-eval-when-situations situations)
+    (check-eval-when-situations situations (context-source context))
     (if (or (member 'cl:eval situations) (member :execute situations))
         (compile-progn body env context)
         (compile-literal nil env context))))
@@ -1704,7 +1756,7 @@
           (compile-let* aux `((declare (special ,@specials))) body
                         new-env context))
       (emit-unbind context special-binding-count)
-      (warn-ignorance igninfos))))
+      (warn-ignorance igninfos (context-source context)))))
 
 ;;; Compile an optional/key item and return the resulting environment
 ;;; and context.

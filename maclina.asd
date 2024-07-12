@@ -34,10 +34,13 @@
   :components
   ((:module "compile"
     :components ((:file "package")
-                 (:file "misc-program-conditions" :depends-on ("package"))
+                 (:file "conditions" :depends-on ("package"))
+                 (:file "misc-program-conditions"
+                  :depends-on ("conditions" "package"))
                  (:file "parse-macro" :depends-on ("misc-program-conditions"
                                                    "package"))
-                 (:file "unknown-reference-conditions" :depends-on ("package"))
+                 (:file "unknown-reference-conditions"
+                  :depends-on ("conditions" "package"))
                  (:file "compilation-unit"
                   :depends-on ("unknown-reference-conditions" "package"))
                  (:file "environment" :depends-on ("package"))

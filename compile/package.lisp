@@ -27,6 +27,7 @@
            #:cfunction-lambda-list #:cfunction-lambda-list-p)
   ;; Conditions and compilation unit handling
   (:export #:with-compilation-unit #:with-compilation-results)
+  (:export #:compiler-condition #:source)
   (:export #:unknown-reference #:unknown-variable #:unknown-function
            #:name
            #:unknown-reference-resolution #:resolve-reference
