@@ -120,6 +120,7 @@
                  (:file "cooperation" :depends-on ("suites" "rt" "packages"))
                  (:file "timeout" :depends-on ("suites" "rt" "packages"))
                  (:file "long" :depends-on ("suites" "rt" "packages"))
+                 (:file "pc-map" :depends-on ("suites" "rt" "packages"))
                  (:file "ignore" :depends-on ("suites" "rt" "packages"))
                  (:module "compiler-conditions"
                   :depends-on ("suites" "rt" "packages")
