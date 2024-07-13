@@ -370,12 +370,12 @@
 (defun emit-const (context index) (assemble context m:const index))
 (defun emit-fdefinition (context index) (assemble context m:fdefinition index))
 
-(defun emit-parse-key-args (context max-count key-count key-names aok-p)
+(defun emit-parse-key-args (context max-count key-count key-literal-start aok-p)
   ;; Because of the key-count encoding, we have to special case long a bit.
   (let ((frame-end (context-frame-end context))
         (lit (if (zerop key-count) ; don't need a literal then
                  0
-                 (literal-index (first key-names) context))))
+                 key-literal-start)))
     (cond ((and (< max-count #.(ash 1 8)) (< key-count #.(ash 1 7))
                 (< lit #.(ash 1 8)) (< frame-end #.(ash 1 8)))
            (assemble context m:parse-key-args
@@ -1640,12 +1640,14 @@
       (when key-p
         ;; Generate code to parse the key args. As with optionals, we don't do
         ;; defaulting yet.
-        (let ((key-names (mapcar #'caar keys)))
-          (emit-parse-key-args context max-count key-count key-names aok-p)
-          ;; emit-parse-key-args establishes the first key in the literals.
-          ;; now do the rest.
-          (dolist (key-name (rest key-names))
-            (new-literal-index key-name context)))
+        (let ((key-literal-start nil))
+          ;; Generate fresh indices for each keyword, to ensure they're
+          ;; contiguous.
+          (dolist (key keys)
+            (let ((i (new-literal-index (caar key) context)))
+              (unless key-literal-start (setf key-literal-start i))))
+          (emit-parse-key-args context
+                               max-count key-count key-literal-start aok-p))
         (let ((keyvars (mapcar #'cadar keys)))
           (setf (values new-env context)
                 (bind-vars keyvars new-env context))
