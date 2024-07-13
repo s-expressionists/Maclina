@@ -69,7 +69,7 @@
           finally (cl:return (values (list* (first desc) longp args) ip)))))
 
 (defun %display-instruction (name longp args textify-operand)
-  (if (string= name "parse-key-args")
+  (if (string= name "PARSE-KEY-ARGS")
       ;; We special case this despite the keys-arg thing because it's
       ;; just pretty weird all around.
       (let* ((more-start (second (first args)))
@@ -79,7 +79,7 @@
              (keys (third args))
              (framestart (second (fourth args))))
         ;; Print
-        (format t "~&  ~:[~;long ~]~(~a~)~:[~;-aok~] ~d ~d '~s ~d"
+        (format t "~&  ~:[~;long ~]~(~a~)~:[~;-aok~] ~d ~d ~a ~d"
                 longp name aokp more-start key-count
                 (funcall textify-operand keys key-count) framestart))
       ;; Normal case
