@@ -601,16 +601,18 @@
 ;;; Compile into an existing module. Don't link.
 ;;; Useful for the file compiler, and for the first stage of runtime COMPILE.
 (defun compile-into (module lambda-expression env
-                     &rest keys &key block-name declarations)
+                     &rest keys &key block-name declarations source)
   (declare (ignore block-name declarations))
   (check-type lambda-expression lambda-expression)
   (let ((env (coerce-to-lexenv env))
         (lambda-list (cadr lambda-expression))
-        (body (cddr lambda-expression)))
-    (apply #'compile-lambda lambda-list body env module keys)))
+        (body (cddr lambda-expression))
+        (source (expr-source-location lambda-expression source)))
+    (apply #'compile-lambda lambda-list body env module :source source keys)))
 
-(defun compile-link (lambda-expression env &rest keys &key block-name declarations)
-  (declare (ignore block-name declarations))
+(defun compile-link (lambda-expression env &rest keys
+                     &key block-name declarations source)
+  (declare (ignore block-name declarations source))
   (link-function (apply #'compile-into (make-cmodule) lambda-expression env keys)
                  (if (lexical-environment-p env)
                      (global-environment env)
@@ -1489,12 +1491,13 @@
 ;;; stripped by lexenv-for-macrolet (so that this can be done once
 ;;; for multiple definitions).
 ;;; Also used in cmpltv.
-(defun compute-macroexpander (name lambda-list body env)
+(defun compute-macroexpander (name lambda-list body env &optional source)
   ;; see comment in parse-macro for explanation
   ;; as to how we're using the host here
   (cl:compile nil (parse-macro name lambda-list body env
                                (lambda (lexpr env &rest keys)
-                                 (apply #'compile-link lexpr env keys)))))
+                                 (apply #'compile-link lexpr env
+                                        :source source keys)))))
 
 (defmethod compile-special ((op (eql 'macrolet)) form env context)
   (destructure-syntax (macrolet bindings . body)
@@ -1515,7 +1518,7 @@
                               (error 'macro-not-symbol
                                      :name name :source source))
                             (let* ((macrof (compute-macroexpander
-                                            name lambda-list body env))
+                                            name lambda-list body env source))
                                    (info (make-local-macro name macrof)))
                               (cons name info))))))
       (compile-locally body (make-lexical-environment
@@ -1884,7 +1887,7 @@
 (defun compile-lambda (lambda-list body env module
                        &rest keys
                        &key (name nil namep) block-name
-                         (declarations nil declsp) docstring)
+                         (declarations nil declsp) docstring source)
   (declare (ignore block-name))
   (when declsp
     (check-type docstring (or string null) "a documentation string"))
@@ -1899,13 +1902,23 @@
            (function
              (make-cfunction module
                              :name name :lambda-list lambda-list :doc doc))
-           (context (make-context :receiving t :function function))
-           (env (make-lexical-environment env)))
+           (context (make-context :receiving t :function function
+                                  :source source))
+           (env (make-lexical-environment env))
+           end)
+      (when source
+        (let ((start (make-label)))
+          (setf end (make-label))
+          (emit-label context start)
+          (push-map-info (make-instance 'm:source-info
+                           :start start :end end :source source)
+                         context)))
       (setf (cfunction-index function)
             (vector-push-extend function (cmodule-cfunctions module)))
       (apply #'compile-with-lambda-list
              lambda-list decls body env context :allow-other-keys t keys)
       (assemble context m:return)
+      (when end (emit-label context end))
       function)))
 
 ;;;; linkage
