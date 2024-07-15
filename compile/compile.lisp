@@ -845,7 +845,9 @@
                           :body forms :source (context-source context))))))
 
 (defun compile-locally (body env context)
-  (multiple-value-bind (body decls) (parse-body body)
+  (multiple-value-bind (body decls)
+      (parse-body body :source (context-source context))
+    (check-declarations decls (context-source context))
     (compile-progn body (add-declarations env decls) context)))
 
 (defun fun-name-block-name (fun-name &optional source)
@@ -875,19 +877,23 @@
         env
         (make-lexical-environment env :vars new-vars))))
 
-(defun extract-specials (declarations)
+;; Check syntactic validity of declarations. Limited at the moment.
+(defun check-declarations (declarations &optional source)
   (unless (proper-list-p declarations)
-    (error 'improper-declarations :declarations declarations))
+    (error 'improper-declarations :declarations declarations :source source))
+  (dolist (declaration declarations)
+    (unless (proper-list-p declaration)
+      (error 'improper-declarations :declarations declaration :source source))
+    (dolist (specifier (cdr declaration))
+      (unless (and (consp specifier) (proper-list-p specifier))
+        (error 'not-declaration :specifier specifier :source source)))))
+
+(defun extract-specials (declarations)
   (let ((specials '()))
     (dolist (declaration declarations)
-      (unless (proper-list-p declaration)
-        (error 'improper-declarations :declarations declaration))
       (dolist (specifier (cdr declaration))
-        (unless (consp specifier) (error 'not-declaration :specifier specifier))
         (case (first specifier)
           (special
-           (unless (proper-list-p specifier)
-             (error 'not-declaration :specifier specifier))
            (dolist (var (rest specifier))
              (push var specials))))))
     specials))
@@ -925,7 +931,9 @@
       (error 'improper-bindings
              :bindings bindings
              :source (expr-source-location bindings (context-source context))))
-    (multiple-value-bind (body decls) (parse-body body :whole form)
+    (multiple-value-bind (body decls)
+        (parse-body body :whole form :source (context-source context))
+      (check-declarations decls (context-source context))
       (let* ((specials (extract-specials decls))
              (frame-start (context-frame-end context))
              ;; This will be built up as we process the bindings, and then
@@ -1008,6 +1016,7 @@
   (unless (proper-list-p bindings)
     (error 'improper-bindings :bindings bindings
            :source (expr-source-location bindings (context-source context))))
+  (check-declarations decls)
   (let ((special-binding-count 0)
         (specials (extract-specials decls))
         (inner-context context)
@@ -1049,7 +1058,9 @@
 (defmethod compile-special ((operator (eql 'let*)) form env context)
   (destructure-syntax (let* bindings . body)
       (form :source (context-source context))
-    (multiple-value-bind (body decls) (parse-body body)
+    (multiple-value-bind (body decls)
+        (parse-body body :source (context-source context))
+      (check-declarations decls (context-source context))
       (compile-let* bindings decls body env context))))
 
 (defmethod compile-special ((operator (eql 'flet)) form env context)
@@ -1067,7 +1078,9 @@
                 env context :name `(flet ,name)
                 :block-name (fun-name-block-name name (context-source context)))))
     (emit-bind context (length definitions) (context-frame-end context))
-    (multiple-value-bind (body decls) (parse-body body)
+    (multiple-value-bind (body decls)
+        (parse-body body :source (context-source context))
+      (check-declarations decls (context-source context))
       (multiple-value-bind (env context)
           (bind-fvars (mapcar #'car definitions) env context decls)
         (compile-progn body (add-declarations env decls) context)
@@ -1088,7 +1101,9 @@
                                          :source (expr-source-location
                                                   bind (context-source context)))))
           definitions)
-    (multiple-value-bind (body decls) (parse-body body)
+    (multiple-value-bind (body decls)
+        (parse-body body :source (context-source context))
+      (check-declarations decls (context-source context))
       (multiple-value-bind (new-env new-context)
           (bind-fvars (mapcar #'first definitions) env context decls)
         (let* ((module (context-module context))
@@ -1876,7 +1891,8 @@
   (multiple-value-bind (body decls doc)
       (if declsp
           (values body declarations docstring)
-          (alexandria:parse-body body :documentation t))
+          (parse-body body :documentation t))
+    (check-declarations decls)
     (let* ((name (if namep
                      name
                      (compute-lambda-name lambda-list)))

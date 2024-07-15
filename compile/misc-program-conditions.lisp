@@ -162,9 +162,10 @@
                (go again))))
     (t nil)))
 
-;;; this is alexandria:parse-body, but checks for properness first.
-(defun parse-body (body &rest keys &key documentation whole)
+;;; this is alexandria:parse-body, but checks for properness first,
+;;; and maintains source info.
+(defun parse-body (body &rest keys &key documentation whole source)
   (declare (ignore documentation whole))
   (if (proper-list-p body)
-      (apply #'alexandria:parse-body body keys)
-      (error 'improper-body :body body)))
+      (apply #'alexandria:parse-body body :allow-other-keys t keys)
+      (error 'improper-body :body body :source source)))
