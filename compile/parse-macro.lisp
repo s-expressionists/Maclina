@@ -21,7 +21,7 @@ We also reuse this machinery to bind subexpressions of forms in the compiler. Se
 ;;; 4) a list of parameters for the cross function
 (defun process-lambda-list (lambda-list compiler environment
                             target etarget toplevelp
-                            &optional arguments parameters)
+                            &key arguments parameters source)
   (let* ((bindings nil) (ignorables nil)
          (arguments arguments) (parameters parameters)
          (whole (ecclesia:whole lambda-list))
@@ -59,7 +59,9 @@ We also reuse this machinery to bind subexpressions of forms in the compiler. Se
                  (process-lambda-list sub-lambda-list
                                       compiler environment
                                       targ etarget nil
-                                      arguments parameters)
+                                      :source source
+                                      :arguments arguments
+                                      :parameters parameters)
                (setf bindings (append (reverse %binds) bindings)
                      ignorables (append %ign ignorables)
                      arguments (reverse %args)
@@ -106,7 +108,8 @@ We also reuse this machinery to bind subexpressions of forms in the compiler. Se
       ;; Argument propriety
       (let ((propriety (gensym "CHECK-PROPRIETY")))
         (push `(,propriety (unless (proper-list-p ,target)
-                             (error 'improper-arguments :args ,target)))
+                             (error 'improper-arguments :args ,target
+                                                        :source ,source)))
               bindings)
         (push propriety ignorables))
       ;; Argument count
@@ -118,7 +121,8 @@ We also reuse this machinery to bind subexpressions of forms in the compiler. Se
         (let ((s (gensym "ARGCOUNT-CHECK")))
           (push `(,s
                   (unless (<= ,nreq ,nargs ,@(when nmax `(,nmax)))
-                    (error 'arg:wrong-number-of-arguments
+                    (error 'wrong-number-of-arguments
+                           :source ,source
                            :given-nargs ,nargs
                            :min-nargs ,nreq
                            ,@(when nmax `(:max-nargs ,nmax)))))
@@ -127,7 +131,7 @@ We also reuse this machinery to bind subexpressions of forms in the compiler. Se
       (when keysp
         (let ((s (gensym "EVEN-KEYS-CHECK")))
           (push `(,s (unless (evenp (- ,nargs ,(+ nreq nopt)))
-                       (error 'arg:odd-keywords)))
+                       (error 'odd-keywords :source ,source)))
                 bindings)
           (push s ignorables)))
       ;; Required parameters
@@ -152,7 +156,7 @@ We also reuse this machinery to bind subexpressions of forms in the compiler. Se
             (let ((key-check (gensym "UNKNOWN-KEYS-CHECK"))
                   (valid-keys (mapcar #'caar keys)))
               (push `(,key-check
-                      (check-keywords ',valid-keys ,keytarg))
+                      (check-keywords ',valid-keys ,keytarg ,source))
                     bindings)
               (push key-check ignorables)))
           ;; Bind keys
@@ -173,7 +177,7 @@ We also reuse this machinery to bind subexpressions of forms in the compiler. Se
 ;;; This function is only called when &allow-other-keys is
 ;;; not present.
 ;;; Return value undefined.
-(defun check-keywords (valid-keys plist)
+(defun check-keywords (valid-keys plist &optional source)
   (loop with seen-aok = nil ; see 3.4.1.4.1.1
         for (key val) on plist by #'cddr
         when (and (not seen-aok) (eq key :allow-other-keys))
@@ -186,7 +190,8 @@ We also reuse this machinery to bind subexpressions of forms in the compiler. Se
                    (eq key :allow-other-keys)) ; always valid
           collect key into unknown-keys
         finally (when unknown-keys
-                  (error 'arg:unrecognized-keyword-argument
+                  (error 'unrecognized-keyword-argument
+                         :source source
                          :unrecognized-keywords unknown-keys))))
 
 ;;; Check if a keyword is in the plist. The plist is valid and has
@@ -216,7 +221,7 @@ We also reuse this machinery to bind subexpressions of forms in the compiler. Se
            (declare (ignorable ,@ignorables))
            (funcall ,bodyf ,@arguments))))))
 
-(defmacro destructure-syntax ((op &rest lambda-list) (form &key (rest t))
+(defmacro destructure-syntax ((op &rest lambda-list) (form &key (rest t) source)
                               &body body)
   (declare (ignore op))
   (alexandria:once-only (form)
@@ -229,7 +234,7 @@ We also reuse this machinery to bind subexpressions of forms in the compiler. Se
            (declare (ignore env block-name))
            (assert (not block-name-p))
            lexpr)
-         nil form nil rest)
+         nil form nil rest :source source)
       `(let* (,@bindings
               ,@(mapcar #'list parameters arguments))
          (declare (ignorable ,@ignorables))

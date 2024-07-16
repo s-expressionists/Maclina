@@ -20,6 +20,7 @@
   :components ((:file "machine")
                (:file "arg-conditions")
                (:file "structures" :depends-on ("machine"))
+               (:file "map-info" :depends-on ("structures" "machine"))
                (:file "link" :depends-on ("machine"))
                (:file "access" :depends-on ("machine"))
                (:file "disassemble" :depends-on ("structures" "machine"))))
@@ -33,16 +34,20 @@
   :components
   ((:module "compile"
     :components ((:file "package")
-                 (:file "misc-program-conditions" :depends-on ("package"))
+                 (:file "conditions" :depends-on ("package"))
+                 (:file "misc-program-conditions"
+                  :depends-on ("conditions" "package"))
                  (:file "parse-macro" :depends-on ("misc-program-conditions"
                                                    "package"))
-                 (:file "unknown-reference-conditions" :depends-on ("package"))
+                 (:file "unknown-reference-conditions"
+                  :depends-on ("conditions" "package"))
                  (:file "compilation-unit"
                   :depends-on ("unknown-reference-conditions" "package"))
+                 (:file "environment" :depends-on ("package"))
                  (:file "compile" :depends-on ("unknown-reference-conditions"
                                                "misc-program-conditions"
                                                "compilation-unit" "parse-macro"
-                                               "package"))
+                                               "environment" "package"))
                  (:file "documentation" :depends-on ("compile"))))))
 
 (asdf:defsystem #:maclina/compile-file
@@ -118,6 +123,8 @@
                  (:file "cooperation" :depends-on ("suites" "rt" "packages"))
                  (:file "timeout" :depends-on ("suites" "rt" "packages"))
                  (:file "long" :depends-on ("suites" "rt" "packages"))
+                 (:file "pc-map" :depends-on ("suites" "rt" "packages"))
+                 (:file "ignore" :depends-on ("suites" "rt" "packages"))
                  (:module "compiler-conditions"
                   :depends-on ("suites" "rt" "packages")
                   :components ((:file "reference")

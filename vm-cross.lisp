@@ -116,11 +116,9 @@
 (defun bytecode-call (template closure-env args)
   (declare (optimize speed)
            (type list args))
-  (let* ((entry-pc (m:bytecode-function-entry-pc template))
-         (frame-size (m:bytecode-function-locals-frame-size template))
-         (module (m:bytecode-function-module template))
-         (bytecode (m:bytecode-module-bytecode module))
-         (literals (m:bytecode-module-literals module)))
+  (let ((entry-pc (m:bytecode-function-entry-pc template))
+        (frame-size (m:bytecode-function-locals-frame-size template))
+        (module (m:bytecode-function-module template)))
     (declare (type (unsigned-byte 16) frame-size))
     ;; Set up the stack, then call VM.
     (let* ((vm *vm*)
@@ -140,7 +138,7 @@
         (setf (vm-stack-top vm) (+ (vm-frame-pointer vm) frame-size))
         ;; set up the stack, then call vm
         (unwind-protect
-             (vm bytecode closure-env literals frame-size)
+             (vm module closure-env frame-size)
           (setf (vm-dynenv-stack vm) old-de-stack))
         ;; tear down the frame.
         (setf (vm-stack-top vm) (- (vm-frame-pointer vm) (length args)))
@@ -264,18 +262,20 @@
             ;; We take the max for partial frames.
             (subseq stack frame-end (max sp frame-end)))))
 
-(defun vm (bytecode closure constants frame-size)
-  (declare (type (simple-array (unsigned-byte 8) (*)) bytecode)
-           (type (simple-array t (*)) closure constants)
+(defun vm (module closure frame-size)
+  (declare (type (simple-array t (*)) closure)
            (type (unsigned-byte 16) frame-size)
-           (optimize speed))
-  (let* ((vm *vm*)
+           (optimize debug))
+  (let* ((bytecode (m:bytecode-module-bytecode module))
+         (constants (m:bytecode-module-literals module))
+         (vm *vm*)
          (stack (vm-stack vm))
          (ip (vm-pc vm))
          (sp (vm-stack-top vm))
          (bp (vm-frame-pointer vm))
          (timeout *timeout*))
-    (declare (type (simple-array t (*)) stack)
+    (declare (type (simple-array (unsigned-byte 8) (*)) bytecode)
+             (type (simple-array t (*)) constants stack)
              (type (and unsigned-byte fixnum) ip sp bp))
     (labels ((stack (index)
                ;;(declare (optimize (safety 0))) ; avoid bounds check

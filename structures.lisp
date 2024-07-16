@@ -4,7 +4,8 @@
 
 (defstruct bytecode-module
   bytecode
-  literals)
+  literals
+  pc-map)
 
 (defclass bytecode-function (closer-mop:funcallable-standard-object)
   ((%module :initarg :module :accessor bytecode-function-module)

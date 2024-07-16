@@ -10,14 +10,15 @@
 (defun warn-unknown (datum &rest arguments)
   (restart-case (apply #'warn datum arguments) (continue ())))
 
-(define-condition unknown-variable (unknown-reference warning)
+(define-condition unknown-variable (unknown-reference compiler-program-warning)
   ()
   (:report (lambda (condition stream)
              (format stream "Unknown variable ~s: treating as special"
                      (name condition))))
   (:documentation "Condition signaled when the compiler encounters an unknown variable."))
 
-(define-condition unknown-function (unknown-reference style-warning)
+(define-condition unknown-function (unknown-reference
+                                    compiler-program-style-warning)
   ()
   (:report (lambda (condition stream)
              (format stream "Unknown operator ~s: treating as global function"
@@ -41,7 +42,7 @@
 (defmethod resolve-reference ((r1 resolve-function) (r2 unknown-function))
   (equal (name r1) (name r2)))
 
-(define-condition assumed-function-now-macro (warning)
+(define-condition assumed-function-now-macro (compiler-program-warning)
   ((%name :initarg :name :reader name))
   (:report (lambda (condition stream)
              (format stream "Uses of newly noted macro ~s were previously assumed to be function calls"
@@ -53,5 +54,5 @@
   (:documentation "Condition that can be SIGNALed to indicate to a compilation unit that a new macro has been defined, and that previously unknown references to an operator by that name can now be resolved."))
 (defmethod resolve-reference ((r1 resolve-macro) (r2 unknown-function))
   (when (equal (name r1) (name r2))
-    (warn 'assumed-function-now-macro :name (name r1))
+    (warn 'assumed-function-now-macro :name (name r1) :source (source r2))
     t))
