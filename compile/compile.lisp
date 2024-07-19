@@ -363,21 +363,12 @@
 (defun emit-fdefinition (context index) (assemble context m:fdefinition index))
 
 (defun emit-parse-key-args (context max-count key-count key-literal-start aok-p)
-  ;; Because of the key-count encoding, we have to special case long a bit.
   (let ((lit (if (zerop key-count) ; don't need a literal then
                  0
-                 key-literal-start)))
-    (cond ((and (< max-count #.(ash 1 8)) (< key-count #.(ash 1 7))
-                (< lit #.(ash 1 8)))
-           (assemble context m:parse-key-args
-             max-count
-             (if aok-p (logior #.(ash 1 7) key-count) key-count)
-             lit))
-          (t
-           (assemble context m:parse-key-args
-             max-count
-             (if aok-p (logior #.(ash 1 15) key-count) key-count)
-             lit)))))
+                 key-literal-start))
+        (skey-count (ash key-count 1)))
+    (assemble context m:parse-key-args
+      max-count (logior skey-count (if aok-p #b1 #b0)) lit)))
 
 (defun emit-bind (context count offset)
   (cond ((= count 1) (assemble context m:set offset))

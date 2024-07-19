@@ -256,14 +256,14 @@ Construct a list out of all the arguments beginning at `nfixed`, and push it to 
 
 ## parse-key-args #x13 (nfixed misc) (key-count-info misc) (keys keys)
 
-The low 7 (or 15, for `long parse-key-args`) bits of `key-count-info` are a count of keywords, call it `nkeys`. There are `nkeys` literals beginning at `keys` that are keys. Interpret the arguments beginning with `nfixed` as a keyword plist, and push them to the stack in the order of the corresponding keywords. If any of these do not have an entry in the arguments plist, an "unsupplied" value with no meaning except to `jump-if-supplied` is pushed instead.
+The high 7 (or 15, for `long parse-key-args`) bits of `key-count-info` are a count of keywords, call it `nkeys`. There are `nkeys` literals beginning at `keys` that are keys. Interpret the arguments beginning with `nfixed` as a keyword plist, and push them to the stack in the order of the corresponding keywords. If any of these do not have an entry in the arguments plist, an "unsupplied" value with no meaning except to `jump-if-supplied` is pushed instead.
 
-If the length of the argument plist is odd, signal a program error. If the high bit of `key-count-info` is unset, and there are keywords in the argument plist that are not part of `keys`, signal a program error.
+If the length of the argument plist is odd, signal a program error. If the low bit of `key-count-info` is unset, and there are keywords in the argument plist that are not part of `keys`, signal a program error. (In other words, the low bit of `key-count-info` indicates whether `&allow-other-keys` was present.)
 
 ```lisp
 (let* ((plist (nthcdr NFIXED arguments))
-       (nkeys (ldb (byte 7 #|or 15|# 0) key-count-info))
-       (aokp (logbitp 7 #|or 15|# key-count-info))
+       (nkeys (ash key-count-info -1))
+       (aokp (logbitp 0 key-count-info))
        (keywords (subseq LITERALS keys (+ keys nkeys))))
   (unless (evenp (length plist)) (error 'program-error ...))
   (loop for i from base for kw in keywords

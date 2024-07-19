@@ -266,8 +266,8 @@
                       (setf sp
                             (vm:parse-key-args
                              nfixed
-                             (logand key-count-info #x7f)
-                             (logbitp 7 key-count-info)
+                             (ash key-count-info -1)
+                             (logbitp 0 key-count-info)
                              key-literal-start stack sp
                              (vm-arg-count vm) (vm-args vm) constants)))
                     (incf ip))
@@ -462,8 +462,8 @@
                              (key-literal-start (next-long)))
                          (setf sp (vm:parse-key-args
                                    nfixed
-                                   (logand key-count-info #x7fff)
-                                   (logbitp 15 key-count-info)
+                                   (ash key-count-info -1)
+                                   (logbitp 0 key-count-info)
                                    key-literal-start stack sp
                                    (vm-arg-count vm) (vm-args vm) constants)))
                        (incf ip))
