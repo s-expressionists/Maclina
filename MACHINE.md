@@ -235,28 +235,28 @@ Set the first `nreq` locals to be the first `nreq` arguments.
 
 ### bind-optional-args #x10 (nreq misc) (nopt misc)
 
-Set the `nopt` locals beginning at `nreq` to be the arguments beginning at `nreq`. If there are not enough arguments, the remaining locals are set to an "unsupplied" value with no meaning except to `jump-if-supplied`.
+Push the `nopt` arguments beginning at `nreq` to the stack. If there are not enough arguments, an "unsupplied" value with no meaning except to `jump-if-supplied` is pushed instead.
 
 ```lisp
-(loop for i from nreq
-      do (setf (aref LOCALS i)
-      	       (if (< (length ARGUMENTS) i)
+(loop for i from nreq below (+ nreq nopt)
+      do (push (if (< (length ARGUMENTS) i)
 	       	   (aref ARGUMENTS i)
-		   +UNSUPPLIED+)))
+		   +UNSUPPLIED+)
+               STACK))
 ```
 
 ### listify-rest-args #x11 (nfixed misc)
 
-Construct a list out of all the arguments beginning at `nfixed`, and assign it to the `nfixed`th local.
+Construct a list out of all the arguments beginning at `nfixed`, and push it to the stack.
 
 ```lisp
-(setf (aref LOCALS nfixed) (nthcdr nfixed ARGUMENTS))
+(push (nthcdr nfixed ARGUMENTS) STACK)
 ```
 
 
-## parse-key-args #x13 (nfixed misc) (key-count-info misc) (keys keys) (base misc)
+## parse-key-args #x13 (nfixed misc) (key-count-info misc) (keys keys)
 
-The low 7 (or 15, for `long parse-key-args`) bits of `key-count-info` are a count of keywords, call it `nkeys`. There are `nkeys` literals beginning at `keys` that are keys. Interpret the arguments beginning with `nfixed` as a keyword plist, and assign the locals beginning at `base` to the corresponding keywords. If any of these locals do not have an entry in the arguments plist, they are set to an "unsupplied" value with no meaning except to `jump-if-supplied`.
+The low 7 (or 15, for `long parse-key-args`) bits of `key-count-info` are a count of keywords, call it `nkeys`. There are `nkeys` literals beginning at `keys` that are keys. Interpret the arguments beginning with `nfixed` as a keyword plist, and push them to the stack in the order of the corresponding keywords. If any of these do not have an entry in the arguments plist, an "unsupplied" value with no meaning except to `jump-if-supplied` is pushed instead.
 
 If the length of the argument plist is odd, signal a program error. If the high bit of `key-count-info` is unset, and there are keywords in the argument plist that are not part of `keys`, signal a program error.
 
@@ -267,7 +267,7 @@ If the length of the argument plist is odd, signal a program error. If the high 
        (keywords (subseq LITERALS keys (+ keys nkeys))))
   (unless (evenp (length plist)) (error 'program-error ...))
   (loop for i from base for kw in keywords
-  	do (setf (aref LOCALS i) (getf plist kw +UNSUPPLIED+)))
+  	do (push (getf plist kw +UNSUPPLIED+) STACK))
   (unless (or aokp (all-known-keywords-p plist keywords))
     (error 'program-error ...)))
 ```
@@ -288,12 +288,13 @@ Pop a value from the stack. If it is not `cl:nil`, jump to the label.
 (when (pop STACK) (incf IP label))
 ```
 
-### jump-if-supplied-{8,16} #x1a #x1b (base misc) (dest label)
+### jump-if-supplied-{8,16} #x1a #x1b (dest label)
 
-If the `base`th local is anything but the distinguished unsupplied value, jump to the label.
+Pop a value. If it is anything but the distinguished unsupplied value, push it back, then jump to the label.
 
 ```lisp
-(unless (eq (pop STACK) +UNSUPPLIED+) (incf IP label))
+(let ((value (pop STACK)))
+  (unless (eq value +UNSUPPLIED+) (push value STACK) (incf IP label)))
 ```
 
 ### check-arg-count-<= #x1c (nargs misc)

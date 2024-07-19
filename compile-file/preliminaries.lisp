@@ -10,7 +10,7 @@
 ;;; The versioning encompasses both the FASL format itself as well as the
 ;;; bytecode in modules. Changes to bytecode should get a version bump too.
 (defparameter *major-version* 0)
-(defparameter *minor-version* 14)
+(defparameter *minor-version* 15)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;

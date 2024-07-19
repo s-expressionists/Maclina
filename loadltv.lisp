@@ -89,8 +89,8 @@
     (dbgprint "Magic number matches: ~x" magic)))
 
 ;; Bounds for major and minor version understood by this loader.
-(defparameter *min-version* '(0 14))
-(defparameter *max-version* '(0 14))
+(defparameter *min-version* '(0 15))
+(defparameter *max-version* '(0 15))
 
 (defun loadable-version-p (major minor)
   (and
