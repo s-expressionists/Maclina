@@ -6,6 +6,8 @@
 ;;; These have a start and end index as well as accessory information.
 ;;; They are used for debug information as well as information about the
 ;;; original structure of Lisp programs.
+;;; Not everything in the info map is actually an info: it also includes
+;;; bytecode-functions. But they still have the START and END readers.
 
 ;;; The compiler generates infos with a few convenient restrictions:
 ;;; 1) Info ranges are nested. That is, if one range intersects another,
@@ -24,6 +26,16 @@
 
 (defclass source-info (map-info)
   ((%source :initarg :source :reader source)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Allow bytecode functions to be infos.
+;;;
+
+(defmethod start ((info bytecode-function))
+  (bytecode-function-entry-pc info))
+(defmethod end ((info bytecode-function))
+  (+ (bytecode-function-entry-pc info) (bytecode-function-size info)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -57,3 +69,12 @@
     (if info
         (source info)
         nil)))
+
+(defun first-info-at (module pc predicate)
+  (loop for info across (bytecode-module-pc-map module)
+        when (and (<= (start info) pc) (< pc (end info))
+                  (funcall predicate info))
+          return info))
+
+(defun function-at (module pc)
+  (first-info-at module pc (lambda (info) (typep info 'bytecode-function))))

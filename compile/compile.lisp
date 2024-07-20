@@ -1908,6 +1908,7 @@
                                   :source source))
            (env (make-lexical-environment env))
            end)
+      (push-map-info function context)
       (when source
         (let ((start (make-label)))
           (setf end (make-label))
@@ -2060,16 +2061,19 @@
 (defmethod load-literal-info (client (info env-info) env)
   (m:link-environment client (run-time-environment m:*client* env)))
 
-(defgeneric link-map-info (map-info)
-  (:method-combination progn))
+(defgeneric link-map-info (map-info))
 
-(defmethod link-map-info progn ((info m:map-info))
+(defmethod link-map-info ((info m:map-info))
   (setf (m:start info) (annotation-module-position (m:start info))
-        (m:end info) (annotation-module-position (m:end info))))
+        (m:end info) (annotation-module-position (m:end info)))
+  info)
+
+(defmethod link-map-info ((info cfunction))
+  (cfunction-info info))
 
 (defun link-pc-map (pc-map)
   ;; Make a non-adjustable vector.
-  (map 'vector (lambda (info) (link-map-info info) info) pc-map))
+  (map 'vector #'link-map-info pc-map))
 
 ;;; Run down the hierarchy and link the compile time representations
 ;;; of modules and functions together into runtime objects.
@@ -2082,8 +2086,7 @@
          (bytecode-module
            (m:make-bytecode-module
             :bytecode bytecode
-            :literals literals
-            :pc-map (link-pc-map pc-map)))
+            :literals literals))
          (client m:*client*))
     ;; Create the real function objects.
     (loop for cfunction across (cmodule-cfunctions cmodule)
@@ -2108,7 +2111,9 @@
     ;; Also replace the load-time-value infos with the evaluated forms.
     (map-into literals
               (lambda (info) (load-literal-info client info env))
-              cmodule-literals))
+              cmodule-literals)
+    ;; Ditto for the PC map.
+    (setf (m:bytecode-module-pc-map bytecode-module) (link-pc-map pc-map)))
   (values))
 
 ;;; Given a cfunction, link constants and return an actual function.

@@ -56,3 +56,9 @@
             finally (when success (5am:pass)))
       (5am:is-true outerp "Missing source info for outer call")
       (5am:is-true innerp "Missing source info for inner call"))))
+
+(5am:test pc-map.function
+  (let* ((fun (ccompile nil '(lambda (x) x)))
+         (mod (maclina.machine:bytecode-function-module fun))
+         (entry (maclina.machine:bytecode-function-entry-pc fun)))
+    (5am:is (eql fun (maclina.machine:function-at mod entry)))))
