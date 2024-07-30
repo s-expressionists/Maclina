@@ -95,10 +95,11 @@
     #0a17 #4=#0a#4# #5=#2a((#5# #4#) (#3# #5#)) "畫蛇添足"
     #.(make-array '(3 2) :element-type 'standard-char
        :initial-contents '((#\f #\7) (#\Space #\\) (#\. #\%)))
-    #.(make-array '(3 3 3) :adjustable t)
+    #.(make-array '(3 3 3) :adjustable t :initial-element '#:horn)
     ;; This constant crashes SBCL - see SBCL bug 2038233
     #-sbcl #.(make-array 2 :displaced-to '#5#)
-    #.(make-array 7 :element-type '(unsigned-byte 3) :fill-pointer 2)
+    #.(make-array 7 :element-type '(unsigned-byte 3) :fill-pointer 2
+       :initial-element 2)
     #(2 #:blue #'standard-object "who?" #2a((0 1) (1 0)))))
 
 (5am:test externalize-objects
