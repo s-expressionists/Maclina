@@ -87,6 +87,10 @@
     4/3 -3/2 7.6s0 3.2f-4 4.1d8 5.6l23 #c(3.2 4.7) #c(-8 3/2)
     #\Newline #\7 dribble #:make-load-form #:nonexist
     #.*package* (machine-instance . 223) #1=(#1# (#1# . #1#) . #1#)
+    #.(make-hash-table) #.(make-hash-table :test #'equal)
+    #.(let ((ht (make-hash-table)))
+        (setf (gethash 4 ht) "booze" (gethash 'hello ht) 'world)
+        ht)
     #3=(#2=(#3# #2#) #1# . #2#) "Hello, world!" #*11010110101
     #0a17 #4=#0a#4# #5=#2a((#5# #4#) (#3# #5#)) "畫蛇添足"
     #.(make-array '(3 2) :element-type 'standard-char
