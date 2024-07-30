@@ -32,7 +32,7 @@
     (rplaca 70 ind1 ind2) ; (setf (car [ind1]) [ind2])
     (rplacd 71 ind1 ind2)
     (make-array 74 sind rank . dims)
-    (setf-row-major-aref 75 arrayind rmindex valueind)
+    (initialize-array 75 arrayind . valueinds)
     (make-hash-table 76 sind test count)
     ((setf gethash) 77 htind keyind valueind)
     (make-sb64 78 sind sb64)
@@ -247,14 +247,15 @@
             ((equal packing-type '(signed-byte 64))
              (dump (write-b64 elem stream)))
             ;; TODO: Signed bytes
-            ((equal packing-type 't)) ; handled by setf-aref instructions
+            ((equal packing-type 't)) ; handled by initialize-array instruction
             (t (error "BUG: Unknown packing-type ~s" packing-type))))))
 
-(defmethod encode ((inst setf-aref) stream)
-  (write-mnemonic 'setf-row-major-aref stream)
-  (write-index (setf-aref-array inst) stream)
-  (write-b16 (setf-aref-index inst) stream)
-  (write-index (setf-aref-value inst) stream))
+(defmethod encode ((inst initialize-array) stream)
+  (write-mnemonic 'initialize-array stream)
+  (write-index (initialized-array inst) stream)
+  ;; length is implicit from the array being initialized
+  (loop for c in (array-values inst)
+        do (write-index c stream)))
 
 (defmethod encode ((inst hash-table-creator) stream)
   (let* ((ht (prototype inst))

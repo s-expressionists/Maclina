@@ -54,11 +54,12 @@
    (%packing-info :initarg :packing-info :reader packing-info)
    (%element-type-info :initarg :element-type-info :reader element-type-info)))
 
-;; row-major.
-(defclass setf-aref (effect)
-  ((%array :initarg :array :reader setf-aref-array :type array-creator)
-   (%index :initarg :index :reader setf-aref-index :type (integer 0))
-   (%value :initarg :value :reader setf-aref-value :type creator)))
+;;; Initialize contents of a general array. This is a separate instruction
+;;; because such arrays may contain themselves.
+(defclass initialize-array (effect)
+  ((%array :initarg :array :reader initialized-array :type array-creator)
+   ;; A list of creators as long as the array's total size.
+   (%values :initarg :values :reader array-values :type list)))
 
 (defclass hash-table-creator (vcreator)
   (;; used in disltv
@@ -413,11 +414,12 @@
               (eql (second element-type-info) +other-uaet+))
       ;; (we have to separate initialization here in case the array
       ;;  contains itself. packed arrays can't contain themselves)
-      (loop for i below (array-total-size value)
-            do (add-instruction
-                (make-instance 'setf-aref
-                  :array arr :index i
-                  :value (ensure-constant (row-major-aref value i))))))
+      (add-instruction
+       (make-instance 'initialize-array
+         :array arr
+         :values (loop for i below (array-total-size value)
+                       for e = (row-major-aref value i)
+                       collect (ensure-constant e)))))
     arr))
 
 (defmethod add-constant ((value hash-table))
