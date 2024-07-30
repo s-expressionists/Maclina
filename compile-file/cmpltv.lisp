@@ -67,11 +67,17 @@
    (%count :initarg :count :reader hash-table-creator-count
            :type (integer 0))))
 
-(defclass setf-gethash (effect)
-  ((%hash-table :initarg :hash-table :reader setf-gethash-hash-table
-                :type hash-table-creator)
-   (%key :initarg :key :reader setf-gethash-key :type creator)
-   (%value :initarg :value :reader setf-gethash-value :type creator)))
+;;; Initialize contents of a hash table. Separate instruction because
+;;; circular references are possible.
+(defclass initialize-hash-table (effect)
+  ((%table :initarg :table :reader initialized-table :type hash-table-creator)
+   ;; We have to store the count ourselves, since the hash table size may
+   ;; not be identical to the number of elements.
+   (%count :initarg :count :reader initialized-table-count
+           :type (unsigned-byte 32))
+   ;; An alist of all the keys and values in the table.
+   ;; The keys and values are creators.
+   (%alist :initarg :alist :reader alist :type list)))
 
 (defclass symbol-creator (vcreator)
   (;; Is there actually a point to trying to coalesce symbol names?
@@ -423,17 +429,21 @@
     arr))
 
 (defmethod add-constant ((value hash-table))
-  (let ((ht (add-creator
-             value
-             (make-instance 'hash-table-creator :prototype value
-                            :test (hash-table-test value)
-                            :count (hash-table-count value)))))
-    (maphash (lambda (k v)
-               (add-instruction
-                (make-instance 'setf-gethash
-                  :hash-table ht
-                  :key (ensure-constant k) :value (ensure-constant v))))
-             value)
+  (let* ((count (hash-table-count value))
+         (ht (add-creator
+              value
+              (make-instance 'hash-table-creator :prototype value
+                             :test (hash-table-test value)
+                             :count count)))
+         (alist nil))
+    (unless (zerop count) ; empty hash table, so nothing to initialize
+      (maphash (lambda (k v)
+                 (let ((ck (ensure-constant k)) (cv (ensure-constant v)))
+                   (push (cons ck cv) alist)))
+               value)
+      (add-instruction
+       (make-instance 'initialize-hash-table
+         :table ht :count count :alist alist)))
     ht))
 
 (defmethod add-constant ((value symbol))
