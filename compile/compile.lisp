@@ -342,60 +342,33 @@
 (defun emit-catch (context label)
   (emit-control+label context m:catch-8 m:catch-16 nil label))
 
-(defun emit-jump-if-supplied (context index label)
+(defun emit-jump-if-supplied (context label)
   (flet ((emitter (fixup position code)
            (let* ((size (fixup-size fixup))
+                  (addrlongp (ecase size (2 nil) (3 t)))
                   (offset (unsigned (fixup-delta fixup)
-                                    (* 8 (if (evenp size) 2 1)))))
-             (ecase size
-               (3
-                (setf (aref code position) m:jump-if-supplied-8
-                      (aref code (1+ position)) index
-                      position (+ 2 position)))
-               (4
-                (setf (aref code position) m:jump-if-supplied-16
-                      (aref code (1+ position)) index
-                      position (+ 2 position)))
-               (5
-                (setf (aref code position) m:long
-                      (aref code (+ 1 position)) m:jump-if-supplied-8
-                      (aref code (+ 2 position)) (ldb (byte 8 0) index)
-                      (aref code (+ 3 position)) (ldb (byte 8 8) index)
-                      position (+ 4 position)))
-               (6
-                (setf (aref code position) m:long
-                      (aref code (+ 1 position)) m:jump-if-supplied-16
-                      (aref code (+ 2 position)) (ldb (byte 8 0) index)
-                      (aref code (+ 3 position)) (ldb (byte 8 8) index)
-                      position (+ 4 position))))
-             (write-le-unsigned code offset (if (evenp size) 2 1) position)))
+                                    (* 8 (if addrlongp 2 1)))))
+             (setf (aref code position)
+                   (if addrlongp m:jump-if-supplied-16 m:jump-if-supplied-8))
+             (incf position)
+             (write-le-unsigned code offset (if addrlongp 2 1) position)))
          (resizer (fixup)
            (typecase (fixup-delta fixup)
-             ((signed-byte 8) (if (< index #.(ash 1 8)) 3 5))
-             ((signed-byte 16) (if (< index #.(ash 1 8)) 4 6))
+             ((signed-byte 8) 2)
+             ((signed-byte 16) 3)
              (t (error "???? PC offset too big ????")))))
-    (emit-fixup context (make-fixup label 3 #'emitter #'resizer))))
+    (emit-fixup context (make-fixup label 2 #'emitter #'resizer))))
 
 (defun emit-const (context index) (assemble context m:const index))
 (defun emit-fdefinition (context index) (assemble context m:fdefinition index))
 
 (defun emit-parse-key-args (context max-count key-count key-literal-start aok-p)
-  ;; Because of the key-count encoding, we have to special case long a bit.
-  (let ((frame-end (context-frame-end context))
-        (lit (if (zerop key-count) ; don't need a literal then
+  (let ((lit (if (zerop key-count) ; don't need a literal then
                  0
-                 key-literal-start)))
-    (cond ((and (< max-count #.(ash 1 8)) (< key-count #.(ash 1 7))
-                (< lit #.(ash 1 8)) (< frame-end #.(ash 1 8)))
-           (assemble context m:parse-key-args
-             max-count
-             (if aok-p (logior #.(ash 1 7) key-count) key-count)
-             lit frame-end))
-          (t
-           (assemble context m:parse-key-args
-             max-count
-             (if aok-p (logior #.(ash 1 15) key-count) key-count)
-             lit frame-end)))))
+                 key-literal-start))
+        (skey-count (ash key-count 1)))
+    (assemble context m:parse-key-args
+      max-count (logior skey-count (if aok-p #b1 #b0)) lit)))
 
 (defun emit-bind (context count offset)
   (cond ((= count 1) (assemble context m:set offset))
@@ -1601,6 +1574,36 @@
     (declare (ignore type))
     (compile-form form env context)))
 
+;;; Generate code to default an &optional or &key variable.
+(defun gen-1-default (defaultf -p env context)
+  (let ((vcontext (new-context context :receiving 1))
+        (slabel (make-label))
+        (alabel (when -p (make-label))))
+    (emit-jump-if-supplied vcontext slabel)
+    (compile-form defaultf env vcontext)
+    (when -p
+      (assemble vcontext m:nil)
+      (emit-jump vcontext alabel))
+    (emit-label vcontext slabel)
+    (when -p
+      (compile-literal 't env vcontext)
+      (emit-label vcontext alabel))))
+
+;;; Generate code to bind one variable.
+;;; Returns (values new-env new-context)
+(defun gen-1-bind (var specialp env context decls)
+  (cond (specialp
+         (emit-special-bind context var)
+         (values (add-specials (list var) env)
+                 (new-context context :dynenv '(:special))))
+        (t
+         (setf (values env context)
+               (bind-vars (list var) env context decls))
+         (let ((info (var-info var env)))
+           (maybe-emit-make-cell info context)
+           (assemble context m:set (frame-offset info)))
+         (values env context))))
+
 ;;; Deal with lambda lists. Compile the body with the lambda vars bound.
 ;;; Optional/key handling is done in two steps:
 ;;;
@@ -1620,15 +1623,9 @@
            (key-count (length keys))
            (more-p (or rest key-p))
            new-env ; will be the body environment
-           default-env ; environment for compiling default forms
            (context context)
            (specials (extract-specials decls))
            (special-binding-count 0)
-           ;; An alist from optional and key variables to their local indices.
-           ;; This is needed so that we can properly mark any that are special as
-           ;; such while leaving them temporarily "lexically" bound during
-           ;; argument parsing.
-           (opt-key-indices nil)
            ;; A list of lexical infos to check for ignoredness.
            (igninfos nil))
       (setf (values new-env context) (bind-vars required env context decls))
@@ -1657,40 +1654,39 @@
                    (push info igninfos)
                    (maybe-emit-encell info context)))))
         (setq new-env (add-specials (intersection specials required) new-env)))
-      ;; set the default env to have all the requireds bound,
-      ;; but don't put in the optionals (yet).
-      (setq default-env new-env)
       (unless (zerop optional-count)
-        ;; Generate code to bind the provided optional args; unprovided args will
-        ;; be initialized with the unbound marker.
         (assemble context m:bind-optional-args min-count optional-count)
-        (let ((optvars (mapcar #'first optionals)))
-          ;; Mark the location of each optional. Note that we do this even if
-          ;; the variable will be specially bound.
-          (setf (values new-env context)
-                (bind-vars optvars new-env context decls))
-          ;; Add everything to opt-key-indices.
-          (dolist (var optvars)
-            (let ((info (var-info var new-env)))
-              (push info igninfos)
-              (push (cons var (frame-offset info)) opt-key-indices)))))
+        (loop for (opt default -p) in optionals
+              for ospecialp = (or (member opt specials)
+                                  (globally-special-p opt env))
+              for pspecialp = (and -p
+                                   (or (member -p specials)
+                                       (globally-special-p -p env)))
+              do (gen-1-default default -p new-env context)
+                 ;; Values are on the stack. Do the binding(s).
+                 (when -p
+                   (setf (values new-env context)
+                         (gen-1-bind -p pspecialp new-env context decls)))
+                 (setf (values new-env context)
+                       (gen-1-bind opt ospecialp new-env context decls))
+                 ;; Bookkeeping
+                 (if ospecialp
+                     (incf special-binding-count)
+                     (push (var-info opt new-env) igninfos))
+                 (cond ((not -p))
+                       (pspecialp (incf special-binding-count))
+                       (t (push (var-info -p new-env) igninfos)))))
       (when rest
         (assemble context m:listify-rest-args max-count)
-        (setf (values new-env context)
-              (bind-vars (list rest) new-env context decls))
-        (cond ((or (member rest specials)
-                   (globally-special-p rest env))
-               (assemble context m:ref (frame-offset (var-info rest new-env)))
-               (emit-special-bind context rest)
-               (incf special-binding-count 1)
-               (setq new-env (add-specials (list rest) new-env)))
-              (t
-               (let ((info (var-info rest new-env)))
-                 (push info igninfos)
-                 (maybe-emit-encell info context)))))
+        (let ((rspecialp (or (member rest specials)
+                             (globally-special-p rest env))))
+          (setf (values new-env context)
+                (gen-1-bind rest rspecialp new-env context decls))
+          (if rspecialp
+              (incf special-binding-count)
+              (push (var-info rest new-env) igninfos))))
       (when key-p
-        ;; Generate code to parse the key args. As with optionals, we don't do
-        ;; defaulting yet.
+        ;; Generate code to parse the key args.
         (let ((key-literal-start nil))
           ;; Generate fresh indices for each keyword, to ensure they're
           ;; contiguous.
@@ -1699,100 +1695,27 @@
               (unless key-literal-start (setf key-literal-start i))))
           (emit-parse-key-args context
                                max-count key-count key-literal-start aok-p))
-        (let ((keyvars (mapcar #'cadar keys)))
-          (setf (values new-env context)
-                (bind-vars keyvars new-env context decls))
-          (dolist (var keyvars)
-            (let ((info (var-info var new-env)))
-              (push info igninfos)
-              (push (cons var (frame-offset info)) opt-key-indices)))))
-      ;; Generate defaulting code for optional args, and special-bind them
-      ;; if necessary.
-      (unless (zerop optional-count)
-        (do ((optionals optionals (rest optionals))
-             (optional-label (make-label) next-optional-label)
-             (next-optional-label (make-label) (make-label)))
-            ((endp optionals)
-             (emit-label context optional-label))
-          (emit-label context optional-label)
-          (destructuring-bind (optional-var defaulting-form supplied-var)
-              (first optionals)
-            (let ((optional-special-p (or (member optional-var specials)
-                                          (globally-special-p optional-var env)))
-                  (index (cdr (assoc optional-var opt-key-indices)))
-                  (supplied-special-p
-                    (and supplied-var
-                         (or (member supplied-var specials)
-                             (globally-special-p supplied-var env)))))
-              (setf (values new-env context)
-                    (compile-optional/key-item optional-var defaulting-form
-                                               index
-                                               supplied-var next-optional-label
-                                               optional-special-p supplied-special-p
-                                               context new-env
-                                               default-env decls))
-              ;; set the default env for later bindings.
-              (let* ((ovar (cons optional-var
-                                 (var-info optional-var new-env)))
-                     (svar (when supplied-var
-                             (cons supplied-var
-                                   (var-info supplied-var new-env))))
-                     (newvars
-                       (if svar (list svar ovar) (list ovar))))
-                (when supplied-var
-                  (push (cdr svar) igninfos))
-                (setf default-env
-                      (make-lexical-environment
-                       default-env
-                       :vars (append newvars (vars default-env)))))
-              (when optional-special-p (incf special-binding-count))
-              (when supplied-special-p (incf special-binding-count))))))
-      ;; Generate defaulting code for key args, and special-bind them if necessary.
-      (when key-p
-        ;; Bind the rest parameter in the default env, if existent.
-        (when rest
-          (let ((rvar (cons rest (var-info rest new-env)))
-                (old (vars default-env)))
-            (setf default-env
-                  (make-lexical-environment
-                   default-env :vars (cons rvar old)))))
-        (do ((keys keys (rest keys))
-             (key-label (make-label) next-key-label)
-             (next-key-label (make-label) (make-label)))
-            ((endp keys) (emit-label context key-label))
-          (emit-label context key-label)
-          (destructuring-bind ((key-name key-var) defaulting-form supplied-var)
-              (first keys)
-            (declare (ignore key-name))
-            (let ((index (cdr (assoc key-var opt-key-indices)))
-                  (key-special-p (or (member key-var specials)
-                                     (globally-special-p key-var env)))
-                  (supplied-special-p
-                    (and supplied-var
-                         (or (member supplied-var specials)
-                             (globally-special-p supplied-var env)))))
-              (setf (values new-env context)
-                    (compile-optional/key-item key-var defaulting-form index
-                                               supplied-var next-key-label
-                                               key-special-p supplied-special-p
-                                               context new-env
-                                               default-env decls))
-              ;; set the default env for later bindings.
-              (let* ((ovar (cons key-var
-                                 (var-info key-var new-env)))
-                     (svar (when supplied-var
-                             (cons supplied-var
-                                   (var-info supplied-var new-env))))
-                     (newvars
-                       (if svar (list svar ovar) (list ovar))))
-                (when supplied-var
-                  (push (cdr svar) igninfos))
-                (setf default-env
-                      (make-lexical-environment
-                       default-env
-                       :vars (append newvars (vars default-env)))))
-              (when key-special-p (incf special-binding-count))
-              (when supplied-special-p (incf special-binding-count))))))
+        ;; Do defaulting and bind the key args.
+        (loop for ((key var) default -p) in keys
+              for vspecialp = (or (member var specials)
+                                  (globally-special-p var env))
+              for pspecialp = (and -p
+                                   (or (member -p specials)
+                                       (globally-special-p -p env)))
+              do (gen-1-default default -p new-env context)
+                 ;; Values are on the stack. Do the binding(s).
+                 (when -p
+                   (setf (values new-env context)
+                         (gen-1-bind -p pspecialp new-env context decls)))
+                 (setf (values new-env context)
+                       (gen-1-bind var vspecialp new-env context decls))
+                 ;; Bookkeeping
+                 (if vspecialp
+                     (incf special-binding-count)
+                     (push (var-info var new-env) igninfos))
+                 (cond ((not -p))
+                       (pspecialp (incf special-binding-count))
+                       (t (push (var-info -p new-env) igninfos)))))
       ;; Generate aux and the body as a let*.
       ;; We repeat the special declarations so that let* will know the auxs
       ;; are special, and so that any free special declarations are processed.
@@ -1803,60 +1726,6 @@
                         new-env context))
       (emit-unbind context special-binding-count)
       (warn-ignorance igninfos (context-source context)))))
-
-;;; Compile an optional/key item and return the resulting environment
-;;; and context.
-(defun compile-optional/key-item (var defaulting-form var-index supplied-var next-label
-                                  var-specialp supplied-specialp context env default-env decls)
-  (flet ((default (suppliedp specialp var info)
-           (cond (suppliedp
-                  (cond (specialp
-                         (assemble context m:ref var-index)
-                         (emit-special-bind context var))
-                        (t
-                         (maybe-emit-encell info context))))
-                 (t
-                  ;; We compile in default-env but also context.
-                  ;; The context already has space allocated for all
-                  ;; the later lexical parameters, which have already
-                  ;; been bound. Thus, we ensure that no bindings
-                  ;; in the default form clobber later parameters.
-                  (compile-form defaulting-form default-env
-                                (new-context context :receiving 1))
-                  (cond (specialp
-                         (emit-special-bind context var))
-                        (t
-                         (maybe-emit-make-cell info context)
-                         (assemble context m:set var-index))))))
-         (supply (suppliedp specialp var info)
-           (if suppliedp
-               (compile-literal t env (new-context context :receiving 1))
-               (assemble context m:nil))
-           (cond (specialp
-                  (emit-special-bind context var))
-                 (t
-                  (maybe-emit-make-cell info context)
-                  (assemble context m:set (frame-offset info))))))
-    (let ((supplied-label (make-label))
-          (var-info (var-info var env)))
-      (when supplied-var
-        (setf (values env context)
-              (bind-vars (list supplied-var) env context decls)))
-      (let ((supplied-info (var-info supplied-var env)))
-        (emit-jump-if-supplied context var-index supplied-label)
-        (default nil var-specialp var var-info)
-        (when supplied-var
-          (supply nil supplied-specialp supplied-var supplied-info))
-        (emit-jump context next-label)
-        (emit-label context supplied-label)
-        (default t var-specialp var var-info)
-        (when supplied-var
-          (supply t supplied-specialp supplied-var supplied-info))
-        (when var-specialp
-          (setq env (add-specials (list var) env)))
-        (when supplied-specialp
-          (setq env (add-specials (list supplied-var) env)))
-        (values env context)))))
 
 ;;; Given a lambda list, compute a suitable name for an otherwise
 ;;; anonymous function. The name will be (lambda lambda-list), but with

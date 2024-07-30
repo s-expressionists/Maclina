@@ -9,6 +9,7 @@
 (in-package #:maclina.vm-shared)
 
 (defstruct (unbound-marker (:constructor make-unbound-marker ())))
+(defvar *unbound* (make-unbound-marker))
 
 (declaim (inline stack (setf stack)))
 (defun stack (stack index)
@@ -58,74 +59,70 @@
         ((>= arg-index args-end))
       (setf (local stack bp frame-slot) (stack stack arg-index)))))
 
+;;; super overkill, but might as well get it right just in case
+;;; this is like C's x++
+(defmacro dincf (place &optional (delta 1) &environment env)
+  (multiple-value-bind (vars vals stores write read)
+      (get-setf-expansion place env)
+    (let ((temp (gensym "TEMP")))
+      `(let* (,@(mapcar #'list vars vals)
+              (,temp ,read)
+              (,(first stores) (+ ,temp ,delta)))
+         ,write
+         ,temp))))
+
+(defmacro spush (obj stack sp)
+  `(setf (svref ,stack (dincf ,sp)) ,obj))
+
 (declaim (inline bind-optional-args))
-(defun bind-optional-args (required-count optional-count stack bp argsi nargs)
-  (let* ((optional-start (+ argsi required-count))
-         (args-end (+ argsi nargs))
-         (end (+ optional-start optional-count))
-         (optional-frame-offset required-count)
-         (optional-frame-end (+ optional-frame-offset optional-count)))
-    (if (<= args-end end)
-        ;; Could be coded as memcpy in C.
-        (do ((arg-index optional-start (1+ arg-index))
-             (frame-slot optional-frame-offset (1+ frame-slot)))
-            ((>= arg-index args-end)
-             ;; memcpy or similar. (blit bit
-             ;; pattern?)
-             (do ((frame-slot frame-slot (1+ frame-slot)))
-                 ((>= frame-slot optional-frame-end))
-               (setf (local stack bp frame-slot) (make-unbound-marker))))
-          (setf (local stack bp frame-slot) (stack stack arg-index)))
-        ;; Could also be coded as memcpy.
-        (do ((arg-index optional-start (1+ arg-index))
-             (frame-slot optional-frame-offset (1+ frame-slot)))
-            ((>= arg-index end))
-          (setf (local stack bp frame-slot) (stack stack arg-index))))))
+(defun bind-optional-args (required-count optional-count stack sp argsi nargs)
+  (let ((nfixed (+ required-count optional-count)))
+    (loop for i from nfixed above nargs
+          do (spush *unbound* stack sp))
+    (loop for i from (1- (min nfixed nargs)) downto required-count
+          do (spush (stack stack (+ argsi i)) stack sp)))
+  sp)
 
 (declaim (inline parse-key-args))
-(defun listify-rest-args (nfixed stack bp argsi nargs)
-  (setf (local stack bp nfixed)
-        (loop for index from nfixed below nargs
-              collect (stack stack (+ argsi index)))))
+(defun listify-rest-args (nfixed stack argsi nargs)
+  (loop for index from nfixed below nargs
+        collect (stack stack (+ argsi index))))
 
 (declaim (inline parse-key-args))
-(defun parse-key-args (nfixed key-count ll-aok-p key-literal-start key-frame-start
-                       stack bp nargs argsi constants)
+(defun parse-key-args (nfixed key-count ll-aok-p key-literal-start
+                       stack sp nargs argsi constants)
   (declare (type (unsigned-byte 16) nfixed key-count
-                 key-literal-start key-frame-start nargs)
+                 key-literal-start nargs)
            (type (simple-array t (*)) stack)
-           (type (and unsigned-byte fixnum) bp argsi))
+           (type (and unsigned-byte fixnum) sp argsi))
+  (when (and (> nargs nfixed) (oddp (- nargs nfixed)))
+    (error 'arg:odd-keywords))
   (let* ((end (+ argsi nargs))
          (more-start (+ argsi nfixed))
          (key-literal-end (+ key-literal-start key-count))
          (unknown-keys nil)
-         (allow-other-keys-p nil))
-    ;; Initialize all key values to #<unbound-marker>
-    (loop for index from key-frame-start below (+ key-frame-start key-count)
-          do (setf (local stack bp index) (make-unbound-marker)))
-    (when (> end more-start)
-      (do ((arg-index (- end 1) (- arg-index 2)))
-          ((< arg-index more-start)
-           (cond ((= arg-index (1- more-start)))
-                 ((= arg-index (- more-start 2))
-                  (error 'arg:odd-keywords))
-                 (t
-                  (error "BUG! This can't happen!"))))
-        (let ((key (stack stack (1- arg-index))))
-          (when (eq key :allow-other-keys)
-            (setf allow-other-keys-p (stack stack arg-index)))
-          (loop for key-index from key-literal-start
-                  below key-literal-end
-                for offset of-type (unsigned-byte 16)
-                from key-frame-start
-                do (when (eq (constant constants key-index) key)
-                     (setf (local stack bp offset) (stack stack arg-index))
-                     (return))
-                finally (unless (or allow-other-keys-p
-                                    ;; aok is always allowed
-                                    (eq key :allow-other-keys))
-                          (push key unknown-keys))))))
+         (allow-other-keys-p nil)
+         (argstemp (make-array key-count :initial-element *unbound*)))
+    (declare (dynamic-extent argstemp))
+    (loop for arg-aindex from (- end 1) above more-start by 2
+          for key-aindex = (- arg-aindex 1)
+          do (let ((akey (stack stack key-aindex))
+                   (arg (stack stack arg-aindex)))
+               (when (eq akey :allow-other-keys)
+                 (setf allow-other-keys-p arg))
+               (loop for key-index from key-literal-start
+                       below key-literal-end
+                     for key = (constant constants key-index)
+                     for offset of-type (unsigned-byte 16) from 0
+                     do (when (eq akey key)
+                          (setf (aref argstemp offset) arg)
+                          (return))
+                     finally (unless (eq akey :allow-other-keys)
+                               (push akey unknown-keys)))))
     (when (and (not (or ll-aok-p allow-other-keys-p))
                unknown-keys)
       (error 'arg:unrecognized-keyword-argument
-             :unrecognized-keywords unknown-keys))))
+             :unrecognized-keywords unknown-keys))
+    (loop for i from (1- key-count) downto 0
+          do (spush (aref argstemp i) stack sp))
+    sp))

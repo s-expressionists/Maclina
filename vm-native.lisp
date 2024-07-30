@@ -78,7 +78,7 @@
   (fresh-line *trace-output*)
   (let ((*standard-output* *trace-output*))
     (maclina.machine:display-instruction bytecode literals ip))
-  #+(or)
+  ;;#+(or)
   (let ((frame-end (+ bp frame-size)))
     (format *trace-output* " ; bp ~d sp ~d locals ~s stack ~s~%"
             bp sp (subseq stack bp frame-end)
@@ -239,33 +239,37 @@
                     (vm:check-arg-count-= (vm-arg-count vm) (next-code))
                     (incf ip))
                    ((#.m:jump-if-supplied-8)
-                    (incf ip (if (typep (local (next-code)) 'vm:unbound-marker)
-                                 2
-                                 (1- (next-code-signed)))))
+                    (let ((arg (spop)))
+                      (incf ip (cond ((typep arg 'vm:unbound-marker) 2)
+                                     (t (spush arg) (next-code-signed))))))
                    ((#.m:jump-if-supplied-16)
-                    (incf ip (if (typep (local (next-code)) 'vm:unbound-marker)
-                                 3
-                                 (1- (next-code-signed-16)))))
+                    (let ((arg (spop)))
+                      (incf ip (cond ((typep arg 'vm:unbound-marker) 3)
+                                     (t (spush arg) (next-code-signed-16))))))
                    ((#.m:bind-required-args)
                     (vm:bind-required-args (next-code) stack bp (vm-args vm))
                     (incf ip))
                    ((#.m:bind-optional-args)
-                    (vm:bind-optional-args (next-code) (next-code)
-                                           stack bp (vm-args vm) (vm-arg-count vm))
+                    (setf sp
+                          (vm:bind-optional-args (next-code) (next-code)
+                                                 stack sp (vm-args vm)
+                                                 (vm-arg-count vm)))
                     (incf ip))
                    ((#.m:listify-rest-args)
-                    (vm:listify-rest-args
-                     (next-code) stack bp (vm-args vm) (vm-arg-count vm))
+                    (spush
+                     (vm:listify-rest-args
+                      (next-code) stack (vm-args vm) (vm-arg-count vm)))
                     (incf ip))
                    ((#.m:parse-key-args)
                     (let ((nfixed (next-code)) (key-count-info (next-code))
-                          (key-literal-start (next-code))
-                          (key-frame-start (next-code)))
-                      (vm:parse-key-args
-                       nfixed
-                       (logand key-count-info #x7f) (logbitp 7 key-count-info)
-                       key-literal-start key-frame-start
-                       stack bp (vm-arg-count vm) (vm-args vm) constants))
+                          (key-literal-start (next-code)))
+                      (setf sp
+                            (vm:parse-key-args
+                             nfixed
+                             (ash key-count-info -1)
+                             (logbitp 0 key-count-info)
+                             key-literal-start stack sp
+                             (vm-arg-count vm) (vm-args vm) constants)))
                     (incf ip))
                    ((#.m:save-sp)
                     (setf (local (next-code)) sp)
@@ -443,24 +447,25 @@
                                               stack bp (vm-args vm))
                        (incf ip))
                       (#.m:bind-optional-args
-                       (vm:bind-optional-args
-                        (next-long) (next-long)
-                        stack bp (vm-args vm) (vm-arg-count vm))
+                       (setf sp
+                             (vm:bind-optional-args
+                              (next-long) (next-long)
+                              stack sp (vm-args vm) (vm-arg-count vm)))
                        (incf ip))
                       (#.m:listify-rest-args
-                       (vm:listify-rest-args
-                        (next-long) stack bp (vm-args vm) (vm-arg-count vm))
+                       (spush
+                        (vm:listify-rest-args
+                         (next-long) stack (vm-args vm) (vm-arg-count vm)))
                        (incf ip))
                       (#.m:parse-key-args
                        (let ((nfixed (next-long)) (key-count-info (next-long))
-                             (key-literal-start (next-long))
-                             (key-frame-start (next-long)))
-                         (vm:parse-key-args
-                          nfixed
-                          (logand key-count-info #x7fff)
-                          (logbitp 15 key-count-info)
-                          key-literal-start key-frame-start
-                          stack bp (vm-arg-count vm) (vm-args vm) constants))
+                             (key-literal-start (next-long)))
+                         (setf sp (vm:parse-key-args
+                                   nfixed
+                                   (ash key-count-info -1)
+                                   (logbitp 0 key-count-info)
+                                   key-literal-start stack sp
+                                   (vm-arg-count vm) (vm-args vm) constants)))
                        (incf ip))
                       (#.m:check-arg-count-<=
                        (vm:check-arg-count-<= (vm-arg-count vm) (next-long))
@@ -471,14 +476,6 @@
                       (#.m:check-arg-count-=
                        (vm:check-arg-count-= (vm-arg-count vm) (next-long))
                        (incf ip))
-                      (#.m:jump-if-supplied-8
-                       (incf ip (if (typep (local (next-long)) 'vm:unbound-marker)
-                                    2
-                                    (- (next-code-signed) 3))))
-                      (#.m:jump-if-supplied-16
-                       (incf ip (if (typep (local (next-long)) 'vm:unbound-marker)
-                                    3
-                                    (- (next-code-signed-16) 3))))
                       (otherwise
                        (error "Unknown long opcode #x~x" (code)))))
                    (otherwise

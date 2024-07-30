@@ -20,7 +20,12 @@ After the last instruction is executed, the FASL has been fully loaded. Any rema
 
 # Changelog
 
-## 0.14 (pending)
+## 0.15 (pending)
+
+* `listify-rest-args` pushes to the stack again. `bind-optional-args` and `parse-key-args` do as well. (This makes compilation a little easier and cleaner.)
+* `parse-key-args` puts aokp in the low bit instead of the high bit, to simplify the long instruction.
+
+## 0.14
 
 * `listify-rest-args` now assigns directly to a local rather than pushing to the stack.
 * New `encell` instruction for a common lexical variable cell making operation.
