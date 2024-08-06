@@ -39,13 +39,10 @@
 ;;; coalescence is still really possible.
 (defclass cons-creator (vcreator) ())
 
-(defclass rplaca-init (effect)
+(defclass initialize-cons (effect)
   ((%cons :initarg :cons :reader rplac-cons :type cons-creator)
-   (%value :initarg :value :reader rplac-value :type creator)))
-
-(defclass rplacd-init (effect)
-  ((%cons :initarg :cons :reader rplac-cons :type cons-creator)
-   (%value :initarg :value :reader rplac-value :type creator)))
+   (%car :initarg :car :reader rplac-car :type creator)
+   (%cdr :initarg :cdr :reader rplac-cdr :type creator)))
 
 ;;; dimensions and element-type are encoded with the array since
 ;;; they shouldn't really need to be coalesced.
@@ -353,10 +350,10 @@
 (defmethod add-constant ((value cons))
   (let ((cons (add-creator
                value (make-instance 'cons-creator :prototype value))))
-    (add-instruction (make-instance 'rplaca-init
-                       :cons cons :value (ensure-constant (car value))))
-    (add-instruction (make-instance 'rplacd-init
-                       :cons cons :value (ensure-constant (cdr value))))
+    (add-instruction (make-instance 'initialize-cons
+                       :cons cons
+                       :car (ensure-constant (car value))
+                       :cdr (ensure-constant (cdr value))))
     cons))
 
 ;;; Arrays are encoded with a code describing how elements are packed.
