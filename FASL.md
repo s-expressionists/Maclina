@@ -26,6 +26,7 @@ After the last instruction is executed, the FASL has been fully loaded. Any rema
 * `parse-key-args` puts aokp in the low bit instead of the high bit, to simplify the long instruction.
 * `setf-row-major-aref` is replaced with `initialize-array`, which initializes the entire array at once - saves some space and some repeated accesses to grab array
 * new FASL instructions: `base-string` and `utf8-string` for easy cases of character array.
+* new FASL instructions: `fcell-set` for simple defuns.
 
 ## 0.14
 

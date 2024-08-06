@@ -138,6 +138,11 @@
 (defclass fcell-lookup (creator)
   ((%name :initarg :name :reader name :type creator)))
 
+;;; Set what's in an fcell.
+(defclass fcell-set (effect)
+  ((%fcell :initarg :fcell :reader fcell :type creator)
+   (%value :initarg :value :reader value :type creator)))
+
 ;;; Look up the "cell" for special variable binding. This is used by the
 ;;; SPECIAL-BIND, SYMBOL-VALUE, and SYMBOL-VALUE-SET VM instructions
 ;;; as a lookup key for the binding, as well as for establishing new
@@ -227,6 +232,12 @@
   ((%name :initform (ensure-constant "lambda-list"))
    (%function :initarg :function :reader ll-function :type creator)
    (%lambda-list :initarg :lambda-list :reader lambda-list :type creator)))
+
+;;;
+
+;;; If this is true, symbols are avoided when possible, and attributes
+;;; are not dumped. Experimental for use with chalybeate.
+(defvar *primitive* nil)
 
 ;;;
 
@@ -732,26 +743,32 @@
     ;; Something to consider: Any of these, but most likely the lambda list,
     ;; could contain unexternalizable data. In this case we should find a way
     ;; to gracefully and silently not dump the attribute.
-    (when (cmp:cfunction-name value)
-      (add-instruction (make-instance 'name-attr
-                         :object inst
-                         :objname (ensure-constant
-                                   (cmp:cfunction-name value)))))
-    (when (cmp:cfunction-doc value)
-      (add-instruction (make-instance 'docstring-attr
-                         :object inst
-                         :docstring (ensure-constant
-                                     (cmp:cfunction-doc value)))))
-    (when (cmp:cfunction-lambda-list-p value)
-      (add-instruction (make-instance 'lambda-list-attr
-                         :function inst
-                         :lambda-list (ensure-constant
-                                       (cmp:cfunction-lambda-list value)))))
+    (unless *primitive*
+      (when (cmp:cfunction-name value)
+        (add-instruction (make-instance 'name-attr
+                           :object inst
+                           :objname (ensure-constant
+                                     (cmp:cfunction-name value)))))
+      (when (cmp:cfunction-doc value)
+        (add-instruction (make-instance 'docstring-attr
+                           :object inst
+                           :docstring (ensure-constant
+                                       (cmp:cfunction-doc value)))))
+      (when (cmp:cfunction-lambda-list-p value)
+        (add-instruction (make-instance 'lambda-list-attr
+                           :function inst
+                           :lambda-list (ensure-constant
+                                         (cmp:cfunction-lambda-list value))))))
     inst))
 
 (defclass bytemodule-creator (vcreator)
   ((%cmodule :initarg :cmodule :reader bytemodule-cmodule)
    (%lispcode :initform nil :initarg :lispcode :reader bytemodule-lispcode)))
+
+(defmethod print-object ((object bytemodule-creator) stream)
+  (print-unreadable-object (object stream :type t)
+    (format stream "~d" (index object)))
+  object)
 
 (defclass setf-literals (effect)
   ((%module :initarg :module :reader setf-literals-module :type creator)
@@ -781,9 +798,9 @@
 
 (defun ensure-fcell (name)
   (or (find-fcell name)
-      (add-fcell name
-                 (make-instance 'fcell-lookup
-                   :name (ensure-constant name)))))
+    (add-fcell name
+               (make-instance 'fcell-lookup
+                 :name (ensure-constant name)))))
 
 (defmethod ensure-module-literal ((info cmp:fdefinition-info))
   (ensure-fcell (cmp:fdefinition-info-name info)))

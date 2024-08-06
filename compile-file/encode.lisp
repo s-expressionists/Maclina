@@ -57,6 +57,9 @@
     (find-class 98 sind cnind)
     (init-object-array 99 ub64)
     (environment 100)
+    (fcell-set 101 nameind)
+    (vcell-set 102 nameind)
+    (ccell-set 103 nameind)
     (attribute 255 name nbytes . data)))
 
 ;; how many bytes are needed to represent an index?
@@ -184,6 +187,7 @@
 		 ;; The following is deleted as unreachable on e.g. SBCL because
 		 ;; it knows that char-code doesn't go this high.
 		 ;; Don't worry about it.
+                 #-sbcl
 		 (t ; not allowed by RFC3629
 		  (error "Code point #x~x for character ~:c is out of range for UTF-8"
 			 cpoint char)))))
@@ -379,6 +383,11 @@
 (defmethod encode ((inst fcell-lookup) stream)
   (write-mnemonic 'fcell stream)
   (write-index (name inst) stream))
+
+(defmethod encode ((inst fcell-set) stream)
+  (write-mnemonic 'fcell-set stream)
+  (write-index (fcell inst) stream)
+  (write-index (value inst) stream))
 
 (defmethod encode ((inst vcell-lookup) stream)
   (write-mnemonic 'vcell stream)
