@@ -61,6 +61,12 @@
    ;; A list of creators as long as the array's total size.
    (%values :initarg :values :reader array-values :type list)))
 
+;;; Special cases of array-creator, since they're very very common
+;;; for e.g. symbol names.
+(defclass base-string-creator (vcreator) ())
+(defclass utf8-string-creator (vcreator)
+  ((%nbytes :initarg :nbytes :reader nbytes :type (unsigned-byte 16))))
+
 (defclass hash-table-creator (vcreator)
   (;; used in disltv
    (%test :initarg :test :reader hash-table-creator-test :type symbol)
@@ -427,6 +433,36 @@
                        for e = (row-major-aref value i)
                        collect (ensure-constant e)))))
     arr))
+
+(defun utf8-length (string)
+  (loop for c across string
+        for cpoint = (char-code c)
+        sum (cond ((< cpoint #x80) 1)
+                  ((< cpoint #x800) 2)
+                  ((< cpoint #x10000) 3)
+                  ((< cpoint #x110000) 4)
+                  #-sbcl ; whines about deleted code
+                  (t (error "Codepoint #x~x for ~:c too big" cpoint c)))))
+
+(defmethod add-constant ((value string))
+  (case (array-element-type value)
+    (base-char (let ((L (length value)))
+                 (if (< L #.(ash 1 16))
+                     ;; FIXME: Check that characters are all ASCII?
+                     (add-creator
+                      value
+                      (make-instance 'base-string-creator
+                        :prototype value))
+                     (call-next-method))))
+    (character (let ((L (utf8-length value)))
+                 (if (< L #.(ash 1 16))
+                     (add-creator
+                      value
+                      (make-instance 'utf8-string-creator
+                        :nbytes L
+                        :prototype value))
+                     (call-next-method))))
+    (otherwise (call-next-method))))
 
 (defmethod add-constant ((value hash-table))
   (let* ((count (hash-table-count value))

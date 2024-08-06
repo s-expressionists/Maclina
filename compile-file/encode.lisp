@@ -31,6 +31,8 @@
     (cons 69 sind)
     (rplaca 70 ind1 ind2) ; (setf (car [ind1]) [ind2])
     (rplacd 71 ind1 ind2)
+    (base-string 72 size . data)
+    (utf8-string 73 nbytes . data)
     (make-array 74 sind rank . dims)
     (initialize-array 75 arrayind . valueinds)
     (make-hash-table 76 sind test count)
@@ -256,6 +258,21 @@
   ;; length is implicit from the array being initialized
   (loop for c in (array-values inst)
         do (write-index c stream)))
+
+(defmethod encode ((inst base-string-creator) stream)
+  (write-mnemonic 'base-string stream)
+  (write-b16 (length (prototype inst)) stream)
+  (loop for c across (prototype inst)
+        for code = (char-code c)
+        do (write-byte code stream)))
+
+;;; Here we encode the number of bytes rather than the number of chars.
+;;; This is smarter, since it means the I/O can be batched. We should
+;;; do it for general arrays as well.
+(defmethod encode ((inst utf8-string-creator) stream)
+  (write-mnemonic 'utf8-string stream)
+  (write-b16 (nbytes inst) stream)
+  (write-utf8 (prototype inst) stream))
 
 (defmethod encode ((inst hash-table-creator) stream)
   (let* ((ht (prototype inst))
