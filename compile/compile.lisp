@@ -1374,7 +1374,7 @@
     (compile-form symbols env (new-context context :receiving 1))
     (compile-form values env (new-context context :receiving 1))
     (assemble context m:progv (env-index context))
-    (compile-progn body env context)
+    (compile-progn body env (new-context context :dynenv '(:special)))
     (emit-unbind context 1)))
 
 (defmethod compile-special ((op (eql 'unwind-protect))

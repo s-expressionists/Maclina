@@ -29,12 +29,13 @@
     (ratio 67)
     (complex 68)
     (cons 69 sind)
-    (rplaca 70 ind1 ind2) ; (setf (car [ind1]) [ind2])
-    (rplacd 71 ind1 ind2)
+    (initialize-cons 70 consind carind cdrind)
+    (base-string 72 size . data)
+    (utf8-string 73 nbytes . data)
     (make-array 74 sind rank . dims)
-    (setf-row-major-aref 75 arrayind rmindex valueind)
+    (initialize-array 75 arrayind . valueinds)
     (make-hash-table 76 sind test count)
-    ((setf gethash) 77 htind keyind valueind)
+    (initialize-hash-table 77 htind keyind valueind)
     (make-sb64 78 sind sb64)
     (find-package 79 sind nameind)
     (make-bignum 80 sind size . words)
@@ -55,6 +56,9 @@
     (find-class 98 sind cnind)
     (init-object-array 99 ub64)
     (environment 100)
+    (fcell-set 101 nameind)
+    (vcell-set 102 nameind)
+    (ccell-set 103 nameind)
     (attribute 255 name nbytes . data)))
 
 ;; how many bytes are needed to represent an index?
@@ -112,15 +116,11 @@
 (defmethod encode ((inst cons-creator) stream)
   (write-mnemonic 'cons stream))
 
-(defmethod encode ((inst rplaca-init) stream)
-  (write-mnemonic 'rplaca stream)
+(defmethod encode ((inst initialize-cons) stream)
+  (write-mnemonic 'initialize-cons stream)
   (write-index (rplac-cons inst) stream)
-  (write-index (rplac-value inst) stream))
-
-(defmethod encode ((inst rplacd-init) stream)
-  (write-mnemonic 'rplacd stream)
-  (write-index (rplac-cons inst) stream)
-  (write-index (rplac-value inst) stream))
+  (write-index (rplac-car inst) stream)
+  (write-index (rplac-cdr inst) stream))
 
 (defun write-dimensions (dimensions stream)
   (let ((rank (length dimensions)))
@@ -182,6 +182,7 @@
 		 ;; The following is deleted as unreachable on e.g. SBCL because
 		 ;; it knows that char-code doesn't go this high.
 		 ;; Don't worry about it.
+                 #-sbcl
 		 (t ; not allowed by RFC3629
 		  (error "Code point #x~x for character ~:c is out of range for UTF-8"
 			 cpoint char)))))
@@ -247,14 +248,30 @@
             ((equal packing-type '(signed-byte 64))
              (dump (write-b64 elem stream)))
             ;; TODO: Signed bytes
-            ((equal packing-type 't)) ; handled by setf-aref instructions
+            ((equal packing-type 't)) ; handled by initialize-array instruction
             (t (error "BUG: Unknown packing-type ~s" packing-type))))))
 
-(defmethod encode ((inst setf-aref) stream)
-  (write-mnemonic 'setf-row-major-aref stream)
-  (write-index (setf-aref-array inst) stream)
-  (write-b16 (setf-aref-index inst) stream)
-  (write-index (setf-aref-value inst) stream))
+(defmethod encode ((inst initialize-array) stream)
+  (write-mnemonic 'initialize-array stream)
+  (write-index (initialized-array inst) stream)
+  ;; length is implicit from the array being initialized
+  (loop for c in (array-values inst)
+        do (write-index c stream)))
+
+(defmethod encode ((inst base-string-creator) stream)
+  (write-mnemonic 'base-string stream)
+  (write-b16 (length (prototype inst)) stream)
+  (loop for c across (prototype inst)
+        for code = (char-code c)
+        do (write-byte code stream)))
+
+;;; Here we encode the number of bytes rather than the number of chars.
+;;; This is smarter, since it means the I/O can be batched. We should
+;;; do it for general arrays as well.
+(defmethod encode ((inst utf8-string-creator) stream)
+  (write-mnemonic 'utf8-string stream)
+  (write-b16 (nbytes inst) stream)
+  (write-utf8 (prototype inst) stream))
 
 (defmethod encode ((inst hash-table-creator) stream)
   (let* ((ht (prototype inst))
@@ -280,11 +297,13 @@
     (write-byte testcode stream)
     (write-b16 count stream)))
 
-(defmethod encode ((inst setf-gethash) stream)
-  (write-mnemonic '(setf gethash) stream)
-  (write-index (setf-gethash-hash-table inst) stream)
-  (write-index (setf-gethash-key inst) stream)
-  (write-index (setf-gethash-value inst) stream))
+(defmethod encode ((inst initialize-hash-table) stream)
+  (write-mnemonic 'initialize-hash-table stream)
+  (write-index (initialized-table inst) stream)
+  (write-b32 (initialized-table-count inst) stream)
+  (loop for (k . v) in (alist inst)
+        do (write-index k stream)
+           (write-index v stream)))
 
 (defmethod encode ((inst singleton-creator) stream)
   (ecase (prototype inst)
@@ -359,6 +378,11 @@
 (defmethod encode ((inst fcell-lookup) stream)
   (write-mnemonic 'fcell stream)
   (write-index (name inst) stream))
+
+(defmethod encode ((inst fcell-set) stream)
+  (write-mnemonic 'fcell-set stream)
+  (write-index (fcell inst) stream)
+  (write-index (value inst) stream))
 
 (defmethod encode ((inst vcell-lookup) stream)
   (write-mnemonic 'vcell stream)

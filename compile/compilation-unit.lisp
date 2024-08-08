@@ -39,7 +39,7 @@ If the compiler encounters an unresolvable problem it can of course fail immedia
                         (lambda (e)
                           (signal e)
                           (setq ,warningsp t ,failurep t))))
-         (values ,@body ,warningsp ,failurep)))))
+         (values (progn ,@body) ,warningsp ,failurep)))))
 
 (defvar *in-compilation-unit* nil)
 

@@ -39,13 +39,10 @@
 ;;; coalescence is still really possible.
 (defclass cons-creator (vcreator) ())
 
-(defclass rplaca-init (effect)
+(defclass initialize-cons (effect)
   ((%cons :initarg :cons :reader rplac-cons :type cons-creator)
-   (%value :initarg :value :reader rplac-value :type creator)))
-
-(defclass rplacd-init (effect)
-  ((%cons :initarg :cons :reader rplac-cons :type cons-creator)
-   (%value :initarg :value :reader rplac-value :type creator)))
+   (%car :initarg :car :reader rplac-car :type creator)
+   (%cdr :initarg :cdr :reader rplac-cdr :type creator)))
 
 ;;; dimensions and element-type are encoded with the array since
 ;;; they shouldn't really need to be coalesced.
@@ -54,11 +51,18 @@
    (%packing-info :initarg :packing-info :reader packing-info)
    (%element-type-info :initarg :element-type-info :reader element-type-info)))
 
-;; row-major.
-(defclass setf-aref (effect)
-  ((%array :initarg :array :reader setf-aref-array :type array-creator)
-   (%index :initarg :index :reader setf-aref-index :type (integer 0))
-   (%value :initarg :value :reader setf-aref-value :type creator)))
+;;; Initialize contents of a general array. This is a separate instruction
+;;; because such arrays may contain themselves.
+(defclass initialize-array (effect)
+  ((%array :initarg :array :reader initialized-array :type array-creator)
+   ;; A list of creators as long as the array's total size.
+   (%values :initarg :values :reader array-values :type list)))
+
+;;; Special cases of array-creator, since they're very very common
+;;; for e.g. symbol names.
+(defclass base-string-creator (vcreator) ())
+(defclass utf8-string-creator (vcreator)
+  ((%nbytes :initarg :nbytes :reader nbytes :type (unsigned-byte 16))))
 
 (defclass hash-table-creator (vcreator)
   (;; used in disltv
@@ -66,11 +70,17 @@
    (%count :initarg :count :reader hash-table-creator-count
            :type (integer 0))))
 
-(defclass setf-gethash (effect)
-  ((%hash-table :initarg :hash-table :reader setf-gethash-hash-table
-                :type hash-table-creator)
-   (%key :initarg :key :reader setf-gethash-key :type creator)
-   (%value :initarg :value :reader setf-gethash-value :type creator)))
+;;; Initialize contents of a hash table. Separate instruction because
+;;; circular references are possible.
+(defclass initialize-hash-table (effect)
+  ((%table :initarg :table :reader initialized-table :type hash-table-creator)
+   ;; We have to store the count ourselves, since the hash table size may
+   ;; not be identical to the number of elements.
+   (%count :initarg :count :reader initialized-table-count
+           :type (unsigned-byte 32))
+   ;; An alist of all the keys and values in the table.
+   ;; The keys and values are creators.
+   (%alist :initarg :alist :reader alist :type list)))
 
 (defclass symbol-creator (vcreator)
   (;; Is there actually a point to trying to coalesce symbol names?
@@ -124,6 +134,11 @@
 ;;; and the FDEFINITION instruction just does CL:FDEFINITION.
 (defclass fcell-lookup (creator)
   ((%name :initarg :name :reader name :type creator)))
+
+;;; Set what's in an fcell.
+(defclass fcell-set (effect)
+  ((%fcell :initarg :fcell :reader fcell :type creator)
+   (%value :initarg :value :reader value :type creator)))
 
 ;;; Look up the "cell" for special variable binding. This is used by the
 ;;; SPECIAL-BIND, SYMBOL-VALUE, and SYMBOL-VALUE-SET VM instructions
@@ -214,6 +229,12 @@
   ((%name :initform (ensure-constant "lambda-list"))
    (%function :initarg :function :reader ll-function :type creator)
    (%lambda-list :initarg :lambda-list :reader lambda-list :type creator)))
+
+;;;
+
+;;; If this is true, symbols are avoided when possible, and attributes
+;;; are not dumped. Experimental for use with chalybeate.
+(defvar *primitive* nil)
 
 ;;;
 
@@ -329,10 +350,10 @@
 (defmethod add-constant ((value cons))
   (let ((cons (add-creator
                value (make-instance 'cons-creator :prototype value))))
-    (add-instruction (make-instance 'rplaca-init
-                       :cons cons :value (ensure-constant (car value))))
-    (add-instruction (make-instance 'rplacd-init
-                       :cons cons :value (ensure-constant (cdr value))))
+    (add-instruction (make-instance 'initialize-cons
+                       :cons cons
+                       :car (ensure-constant (car value))
+                       :cdr (ensure-constant (cdr value))))
     cons))
 
 ;;; Arrays are encoded with a code describing how elements are packed.
@@ -413,25 +434,60 @@
               (eql (second element-type-info) +other-uaet+))
       ;; (we have to separate initialization here in case the array
       ;;  contains itself. packed arrays can't contain themselves)
-      (loop for i below (array-total-size value)
-            do (add-instruction
-                (make-instance 'setf-aref
-                  :array arr :index i
-                  :value (ensure-constant (row-major-aref value i))))))
+      (add-instruction
+       (make-instance 'initialize-array
+         :array arr
+         :values (loop for i below (array-total-size value)
+                       for e = (row-major-aref value i)
+                       collect (ensure-constant e)))))
     arr))
 
+(defun utf8-length (string)
+  (loop for c across string
+        for cpoint = (char-code c)
+        sum (cond ((< cpoint #x80) 1)
+                  ((< cpoint #x800) 2)
+                  ((< cpoint #x10000) 3)
+                  ((< cpoint #x110000) 4)
+                  #-sbcl ; whines about deleted code
+                  (t (error "Codepoint #x~x for ~:c too big" cpoint c)))))
+
+(defmethod add-constant ((value string))
+  (case (array-element-type value)
+    (base-char (let ((L (length value)))
+                 (if (< L #.(ash 1 16))
+                     ;; FIXME: Check that characters are all ASCII?
+                     (add-creator
+                      value
+                      (make-instance 'base-string-creator
+                        :prototype value))
+                     (call-next-method))))
+    (character (let ((L (utf8-length value)))
+                 (if (< L #.(ash 1 16))
+                     (add-creator
+                      value
+                      (make-instance 'utf8-string-creator
+                        :nbytes L
+                        :prototype value))
+                     (call-next-method))))
+    (otherwise (call-next-method))))
+
 (defmethod add-constant ((value hash-table))
-  (let ((ht (add-creator
-             value
-             (make-instance 'hash-table-creator :prototype value
-                            :test (hash-table-test value)
-                            :count (hash-table-count value)))))
-    (maphash (lambda (k v)
-               (add-instruction
-                (make-instance 'setf-gethash
-                  :hash-table ht
-                  :key (ensure-constant k) :value (ensure-constant v))))
-             value)
+  (let* ((count (hash-table-count value))
+         (ht (add-creator
+              value
+              (make-instance 'hash-table-creator :prototype value
+                             :test (hash-table-test value)
+                             :count count)))
+         (alist nil))
+    (unless (zerop count) ; empty hash table, so nothing to initialize
+      (maphash (lambda (k v)
+                 (let ((ck (ensure-constant k)) (cv (ensure-constant v)))
+                   (push (cons ck cv) alist)))
+               value)
+      (add-instruction
+       (make-instance 'initialize-hash-table
+         :table ht :count count :alist alist)))
     ht))
 
 (defmethod add-constant ((value symbol))
@@ -684,26 +740,32 @@
     ;; Something to consider: Any of these, but most likely the lambda list,
     ;; could contain unexternalizable data. In this case we should find a way
     ;; to gracefully and silently not dump the attribute.
-    (when (cmp:cfunction-name value)
-      (add-instruction (make-instance 'name-attr
-                         :object inst
-                         :objname (ensure-constant
-                                   (cmp:cfunction-name value)))))
-    (when (cmp:cfunction-doc value)
-      (add-instruction (make-instance 'docstring-attr
-                         :object inst
-                         :docstring (ensure-constant
-                                     (cmp:cfunction-doc value)))))
-    (when (cmp:cfunction-lambda-list-p value)
-      (add-instruction (make-instance 'lambda-list-attr
-                         :function inst
-                         :lambda-list (ensure-constant
-                                       (cmp:cfunction-lambda-list value)))))
+    (unless *primitive*
+      (when (cmp:cfunction-name value)
+        (add-instruction (make-instance 'name-attr
+                           :object inst
+                           :objname (ensure-constant
+                                     (cmp:cfunction-name value)))))
+      (when (cmp:cfunction-doc value)
+        (add-instruction (make-instance 'docstring-attr
+                           :object inst
+                           :docstring (ensure-constant
+                                       (cmp:cfunction-doc value)))))
+      (when (cmp:cfunction-lambda-list-p value)
+        (add-instruction (make-instance 'lambda-list-attr
+                           :function inst
+                           :lambda-list (ensure-constant
+                                         (cmp:cfunction-lambda-list value))))))
     inst))
 
 (defclass bytemodule-creator (vcreator)
   ((%cmodule :initarg :cmodule :reader bytemodule-cmodule)
    (%lispcode :initform nil :initarg :lispcode :reader bytemodule-lispcode)))
+
+(defmethod print-object ((object bytemodule-creator) stream)
+  (print-unreadable-object (object stream :type t)
+    (format stream "~d" (index object)))
+  object)
 
 (defclass setf-literals (effect)
   ((%module :initarg :module :reader setf-literals-module :type creator)
@@ -733,9 +795,9 @@
 
 (defun ensure-fcell (name)
   (or (find-fcell name)
-      (add-fcell name
-                 (make-instance 'fcell-lookup
-                   :name (ensure-constant name)))))
+    (add-fcell name
+               (make-instance 'fcell-lookup
+                 :name (ensure-constant name)))))
 
 (defmethod ensure-module-literal ((info cmp:fdefinition-info))
   (ensure-fcell (cmp:fdefinition-info-name info)))

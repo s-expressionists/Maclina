@@ -142,7 +142,7 @@
     (push 56)
     (pop 57)
     (dup 58)
-    (fdesignator 59)
+    (fdesignator 59 ((constant-arg 1)) ((constant-arg 2)))
     (called-fdefinition 60 ((constant-arg 1)) ((constant-arg 2)))
     (protect 61 ((constant-arg 1)) ((constant-arg 2)))
     (cleanup 62)
