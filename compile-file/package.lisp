@@ -2,5 +2,5 @@
   (:use #:cl)
   (:local-nicknames (#:cmp #:maclina.compile)
 		    (#:m #:maclina.machine))
-  (:shadow #:compile-file #:compile-file-pathname)
+  (:shadow #:compile-file #:compile-file-pathname #:find-package)
   (:export #:compile-stream #:compile-file #:compile-file-pathname))

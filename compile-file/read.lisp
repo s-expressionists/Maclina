@@ -35,3 +35,20 @@
 ;;; FIXME: make-structure-instance probably also needs specialization.
 ;;; The host reader macro will look up the structure name in the host
 ;;; global environment to get a class to instantiate.
+
+(defgeneric find-package (client package-name))
+(defmethod find-package ((client reader-client) package-name)
+  (cl:find-package package-name))
+
+(defmethod eclector.reader:interpret-symbol ((client reader-client) input-stream
+                                             package-indicator symbol-name internp)
+  (if (null package-indicator)
+      (make-symbol symbol-name)
+      (let ((package (case package-indicator
+                       (:current (eclector.reader:state-value client '*package*))
+                       (:keyword (find-package client "KEYWORD"))
+                       (t (find-package client package-indicator)))))
+        (cond ((null package) (error "No package named ~a" package-indicator))
+              (internp (intern symbol-name package))
+              ((find-symbol symbol-name package))
+              (t (error "No symbol ~a:~a" package-indicator symbol-name))))))
