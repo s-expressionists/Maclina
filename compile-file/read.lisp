@@ -36,6 +36,11 @@
 ;;; The host reader macro will look up the structure name in the host
 ;;; global environment to get a class to instantiate.
 
+(defgeneric package-name (client environment package))
+(defmethod package-name (client environment package)
+  (declare (ignore client environment))
+  (cl:package-name package))
+
 (defgeneric find-package (client package-name))
 (defmethod find-package ((client reader-client) package-name)
   (cl:find-package package-name))
