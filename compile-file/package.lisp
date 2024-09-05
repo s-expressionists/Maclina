@@ -4,4 +4,5 @@
 		    (#:m #:maclina.machine))
   (:shadow #:compile-file #:compile-file-pathname
            #:find-package #:package-name)
-  (:export #:compile-stream #:compile-file #:compile-file-pathname))
+  (:export #:compile-stream #:compile-file #:compile-file-pathname)
+  (:export #:link-fasls))
