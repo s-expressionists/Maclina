@@ -334,7 +334,8 @@
   (add-instruction instruction))
 
 (defun add-environment (instruction)
-  (setf *environment-coalesce* instruction))
+  (setf *environment-coalesce* instruction)
+  (add-instruction instruction))
 
 (defgeneric add-constant (value))
 
