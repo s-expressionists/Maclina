@@ -238,6 +238,13 @@
 
 ;;;
 
+(defgeneric make-load-form (client object &optional environment))
+(defmethod make-load-form (client object &optional env)
+  (declare (ignore client))
+  (cl:make-load-form object env))
+
+;;;
+
 ;;; Return true iff the value is similar to the existing creator.
 (defgeneric similarp (creator value)
   (:method (creator value) (declare (ignore creator value)) nil))
@@ -684,7 +691,7 @@
 (defmethod add-constant ((value t))
   (when (member value *creating*)
     (error 'circular-dependency :path *creating*))
-  (multiple-value-bind (create initialize) (make-load-form value)
+  (multiple-value-bind (create initialize) (make-load-form m:*client* value)
     (prog1
         (add-creator value (creation-form-creator value create))
       (add-initializer-form initialize))))
