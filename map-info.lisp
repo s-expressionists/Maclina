@@ -18,7 +18,7 @@
 ;;;    the same start and end are ordered indeterminately.
 
 (defclass map-info ()
-  (;; During compilation, these will be labels. The accessors are them used
+  (;; During compilation, these will be labels. The accessors are then used
    ;; to make them into actual indices. The writers should not be used
    ;; outside of link-pc-map in the compiler.
    (%start :initarg :start :accessor start)
