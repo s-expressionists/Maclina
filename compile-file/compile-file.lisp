@@ -45,7 +45,7 @@
 
 (defun compile-file (input-file
                      &rest keys
-                     &key (output-file nil ofp)
+                     &key output-file
 		       (external-format :default)
                        ((:verbose *compile-verbose*) *compile-verbose*)
                        ((:print *compile-print*) *compile-print*)
@@ -53,6 +53,7 @@
 		       ((:client m:*client*) m:*client*)
                      &allow-other-keys)
   (declare (ignore reader-client)) ; passed to compile-stream
+  (declare (ignore output-file)) ; passed to compile-file-pathname
   (let ((output-file (apply #'compile-file-pathname input-file keys)))
     (with-open-file (in input-file :external-format external-format)
       (with-open-file (out output-file

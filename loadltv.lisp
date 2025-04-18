@@ -90,8 +90,8 @@
     (dbgprint "Magic number matches: ~x" magic)))
 
 ;; Bounds for major and minor version understood by this loader.
-(defparameter *min-version* '(0 15))
-(defparameter *max-version* '(0 15))
+(defparameter *min-version* '(0 16))
+(defparameter *max-version* '(0 16))
 
 (defun loadable-version-p (major minor)
   (and
@@ -547,43 +547,74 @@ Did not initialize constants~{ #~d~}"
                          :type (constant typei)
                          :version (constant versioni)))))
 
-(defconstant +other-uaet+   #b11111110)
+(defconstant +other-uaet+   #b00000010)
 
-(defvar +array-packing-infos+
-  '((nil                    #b00000000)
-    (base-char              #b10000000)
-    (character              #b11000000)
-    ;;(short-float          #b10100000) ; i.e. binary16
-    (single-float           #b00100000) ; binary32
-    (double-float           #b01100000) ; binary64
-    ;;(long-float           #b11100000) ; binary128?
-    ;;((complex short...)   #b10110000)
-    ((complex single-float) #b00110000)
-    ((complex double-float) #b01110000)
-    ;;((complex long...)    #b11110000)
-    (bit                    #b00000001) ; (2^(code-1)) bits
-    ((unsigned-byte 2)      #b00000010)
-    ((unsigned-byte 4)      #b00000011)
-    ((unsigned-byte 8)      #b00000100)
-    ((unsigned-byte 16)     #b00000101)
-    ((unsigned-byte 32)     #b00000110)
-    ((unsigned-byte 64)     #b00000111)
-    ;;((unsigned-byte 128) ??)
-    ((signed-byte 8)        #b10000100)
-    ((signed-byte 16)       #b10000101)
-    ((signed-byte 32)       #b10000110)
-    ((signed-byte 64)       #b10000111)
-    ;; invalid:             #b11111110 ; see +other-uaet+
-    (t                      #b11111111)))
+(defvar +array-packing-codes+
+  '((:nil                    #b00000000)
+    (:t                      #b00000001)
+    ;; other-uaet            #b00000010
+    (:base-char              #b00100000)
+    (:character              #b00100001)
+    (:binary16               #b01000000)
+    (:binary32               #b01000001)
+    (:binary64               #b01000010)
+    (:binary80               #b01000011)
+    (:binary128              #b01000111)
+    (:complex-binary16       #b01100000)
+    (:complex-binary32       #b01100001)
+    (:complex-binary64       #b01100010)
+    (:complex-binary80       #b01100011)
+    (:complex-binary128      #b01100100)
+    (:unsigned-byte1         #b10000000)
+    (:unsigned-byte2         #b10000001)
+    (:unsigned-byte4         #b10000010)
+    (:unsigned-byte8         #b10000011)
+    (:unsigned-byte16        #b10000100)
+    (:unsigned-byte32        #b10000101)
+    (:unsigned-byte64        #b10000110)
+    (:unsigned-byte128       #b10000111)
+    (:signed-byte8           #b10100011)
+    (:signed-byte16          #b10100100)
+    (:signed-byte32          #b10100101)
+    (:signed-byte64          #b10100110)
+    (:signed-byte128         #b10100111)))
+
+;;; Mapping from array element types to equivalent packing specs above.
+;;; If the element type of an array is not type-equivalent to one of these,
+;;; it should be given the other-uaet code instead. This is independent of
+;;; how the array is packed.
+(defvar +array-uaet-infos+
+  '((nil                    :nil)
+    (base-char              :base-char)
+    (character              :character)
+    (single-float           :binary32)
+    (double-float           :binary64)
+    ((complex single-float) :complex-binary32)
+    ((complex double-float) :complex-binary64)
+    (bit                    :unsigned-byte1)
+    ((unsigned-byte 2)      :unsigned-byte2)
+    ((unsigned-byte 4)      :unsigned-byte4)
+    ((unsigned-byte 8)      :unsigned-byte8)
+    ((unsigned-byte 16)     :unsigned-byte16)
+    ((unsigned-byte 32)     :unsigned-byte32)
+    ((unsigned-byte 64)     :unsigned-byte64)
+    ((signed-byte 8)        :signed-byte8)
+    ((signed-byte 16)       :signed-byte16)
+    ((signed-byte 32)       :signed-byte32)
+    ((signed-byte 64)       :signed-byte64)
+    (t                      :t)))
 
 (defun decode-packing (code)
-  (or (first (find code +array-packing-infos+ :key #'second))
+  (or (first (find code +array-packing-codes+ :key #'second))
       (error "BUG: Unknown array packing code ~x" code)))
 
 (defun decode-element-type (code stream)
-  (cond ((eql code +other-uaet+) (constant (read-index stream)))
-        ((first (find code +array-packing-infos+ :key #'second)))
-        (t (error "BUG: Unknown array element type code ~x" code))))
+  (if (eql code +other-uaet+)
+      (constant (read-index stream))
+      (let ((pack (find code +array-packing-codes+ :key #'second)))
+        (if pack
+            (first (find pack +array-uaet-infos+ :key #'second))
+            (error "BUG: Unknown array element type code ~x" code)))))
 
 (defmethod %load-instruction ((mnemonic (eql 'make-bytecode-function)) stream)
   (let ((entry-point (read-ub32 stream))
