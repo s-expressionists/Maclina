@@ -293,7 +293,7 @@ Did not initialize constants~{ #~d~}"
         (a (gensym "ARRAY")) (s (gensym "STREAM")))
     `(let* ((,a ,array) (,s ,stream)
             (total-size (array-total-size ,a)))
-       (multiple-value-bind (full-bytes remainder) (floor total-size 8)
+       (multiple-value-bind (full-bytes remainder) (floor total-size ,perbyte)
          (loop for byteindex below full-bytes
                for index = (* ,perbyte byteindex)
                for byte = (read-byte ,s)
@@ -304,7 +304,7 @@ Did not initialize constants~{ #~d~}"
                                            byte)
                           for arrindex = `(+ index ,j)
                           collect `(setf (row-major-aref array ,arrindex) ,bits)))
-         ;; write remainder
+         ;; read remainder
          (let* ((index (* ,perbyte full-bytes))
                 (byte (read-byte ,s)))
            (loop for j below remainder

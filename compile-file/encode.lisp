@@ -138,7 +138,7 @@
   (let ((perbyte (floor 8 nbits))
         (a (gensym "ARRAY")) (s (gensym "STREAM")))
     `(let* ((,a ,array) (,s ,stream) (total-size (array-total-size ,a)))
-       (multiple-value-bind (full-bytes remainder) (floor total-size 8)
+       (multiple-value-bind (full-bytes remainder) (floor total-size ,perbyte)
          (loop for byteindex below full-bytes
                for index = (* ,perbyte byteindex)
                for byte = (logior
@@ -148,13 +148,14 @@
                                    collect `(ash ,rma ,shift)))
                do (write-byte byte ,s))
          ;; write remainder
-         (let* ((index (* ,nbits full-bytes))
-                (byte 0))
-           (loop for i below remainder
-                 for shift = (- 8 (* i ,nbits) ,nbits)
-                 for rma = (row-major-aref ,a (+ index i))
-                 do (setf (ldb (byte ,nbits shift) byte) rma))
-           (write-byte byte ,s))))))
+         (unless (zerop remainder)
+           (let* ((index (* ,perbyte full-bytes))
+                  (byte 0))
+             (loop for i below remainder
+                   for shift = (- 8 (* i ,nbits) ,nbits)
+                   for rma = (row-major-aref ,a (+ index i))
+                   do (setf (ldb (byte ,nbits shift) byte) rma))
+             (write-byte byte ,s)))))))
 
 (defun write-utf8 (character-array stream)
   (declare (optimize speed) (type (array character) character-array))
