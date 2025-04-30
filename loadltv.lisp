@@ -402,47 +402,32 @@ Did not initialize constants~{ #~d~}"
                  `(loop for i below (array-total-size array)
                         for elem = ,form
                         do (setf (row-major-aref array i) elem))))
-      (cond ((eql etcode +other-uaet+)) ; handled via initialize-array
-            ((equal packing-type 'nil))
-            ((equal packing-type 'base-char)
-             (undump (code-char (read-byte stream))))
-            ((equal packing-type 'character)
-	     (read-utf8 array stream))
-            ((equal packing-type 'single-float)
-             (undump (float:decode-float32 (read-ub32 stream))))
-            ((equal packing-type 'double-float)
-             (undump (float:decode-float64 (read-ub64 stream))))
-            ((equal packing-type '(complex single-float))
-             (undump
-              (complex (float:decode-float32 (read-ub32 stream))
-                       (float:decode-float32 (read-ub32 stream)))))
-            ((equal packing-type '(complex double-float))
-             (undump
-              (complex (float:decode-float64 (read-ub64 stream))
-                       (float:decode-float64 (read-ub64 stream)))))
-            ((equal packing-type 'bit) (read-sub-byte array stream 1))
-            ((equal packing-type '(unsigned-byte 2))
-             (read-sub-byte array stream 2))
-            ((equal packing-type '(unsigned-byte 4))
-             (read-sub-byte array stream 4))
-            ((equal packing-type '(unsigned-byte 8))
-             (read-sequence array stream))
-            ((equal packing-type '(unsigned-byte 16))
-             (undump (read-ub16 stream)))
-            ((equal packing-type '(unsigned-byte 32))
-             (undump (read-ub32 stream)))
-            ((equal packing-type '(unsigned-byte 64))
-             (undump (read-ub64 stream)))
-            ((equal packing-type '(signed-byte 8))
-             (undump (read-sb8  stream)))
-            ((equal packing-type '(signed-byte 16))
-             (undump (read-sb16 stream)))
-            ((equal packing-type '(signed-byte 32))
-             (undump (read-sb32 stream)))
-            ((equal packing-type '(signed-byte 64))
-             (undump (read-sb64 stream)))
-            ((equal packing-type 't)) ; initialize-array takes care of it
-            (t (error "BUG: Unknown packing-type ~s" packing-type))))))
+      (case packing-type
+        ((:nil :t)) ; nothing, or handled via initialize-array
+        (:base-char (undump (code-char (read-byte stream))))
+        (:character (read-utf8 array stream))
+        (:binary32 (undump (float:decode-float32 (read-ub32 stream))))
+        (:binary64 (undump (float:decode-float64 (read-ub64 stream))))
+        (:complex-binary32
+         (undump
+          (complex (float:decode-float32 (read-ub32 stream))
+                   (float:decode-float32 (read-ub32 stream)))))
+        (:complex-binary64
+         (undump
+          (complex (float:decode-float64 (read-ub64 stream))
+                   (float:decode-float64 (read-ub64 stream)))))
+        (:unsigned-byte1 (read-sub-byte array stream 1))
+        (:unsigned-byte2 (read-sub-byte array stream 2))
+        (:unsigned-byte4 (read-sub-byte array stream 4))
+        (:unsigned-byte8 (read-sequence array stream))
+        (:unsigned-byte16 (undump (read-ub16 stream)))
+        (:unsigned-byte32 (undump (read-ub32 stream)))
+        (:unsigned-byte64 (undump (read-ub64 stream)))
+        (:signed-byte8  (undump (read-sb8  stream)))
+        (:signed-byte16 (undump (read-sb16 stream)))
+        (:signed-byte32 (undump (read-sb32 stream)))
+        (:signed-byte64 (undump (read-sb64 stream)))
+        (t (error "BUG: Unknown packing-type ~s" packing-type))))))
 
 (defmethod %load-instruction ((mnemonic (eql 'initialize-array)) stream)
   (let ((index (read-index stream)))
@@ -613,7 +598,7 @@ Did not initialize constants~{ #~d~}"
       (constant (read-index stream))
       (let ((pack (find code +array-packing-codes+ :key #'second)))
         (if pack
-            (first (find pack +array-uaet-infos+ :key #'second))
+            (first (find (first pack) +array-uaet-infos+ :key #'second))
             (error "BUG: Unknown array element type code ~x" code)))))
 
 (defmethod %load-instruction ((mnemonic (eql 'make-bytecode-function)) stream)
