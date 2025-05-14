@@ -33,5 +33,7 @@
            #:unknown-reference-resolution #:resolve-reference
            #:resolve-function #:resolve-macro
            #:assumed-function-now-macro)
+  ;; Miscellaneous hooks
+  (:export #:debug-lambda-name #:debug-lambda-list)
   ;; PC map info related stuff
   (:export #:*source-locations*))

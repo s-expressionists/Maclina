@@ -1731,7 +1731,7 @@
 ;;; anonymous function. The name will be (lambda lambda-list), but with
 ;;; extraneous parts of the lambda list removed (default parameters, etc.)
 ;;; This means we parse the lambda list twice, which is a bit inefficient.
-(defun compute-lambda-name (lambda-list)
+(defun backup-lambda-name (lambda-list)
   (multiple-value-bind (required optional rest keys aok-p aux key-p)
       (alexandria:parse-ordinary-lambda-list lambda-list)
     (declare (ignore aux))
@@ -1742,6 +1742,34 @@
               ,@(when key-p '(&key))
               ,@(mapcar #'caar keys)
               ,@(when aok-p '(&allow-other-keys))))))
+
+;;; Given declarations for a lambda expression, return a name for the function
+;;; (used for debugging/display purposes only). Clients may specialize this if
+;;; they have a lambda-name type declaration. If no name is present, this
+;;; function should return NIL. The default method always returns NIL.
+;;; If no method returns a name, a default name will be used. This will be
+;;; (flet foo) or (labels foo) for local functions, or (LAMBDA lambda-list)
+;;; otherwise.
+(defgeneric debug-lambda-name (client declarations)
+  (:method (client declarations)
+    (declare (ignore client declarations))
+    nil))
+
+;;; Given declarations for a lambda expression, return a lambda list for the
+;;; function (used for debugging/display purposes only). Clients may specialize
+;;; this if they have a lambda-list type declaration.
+;;; (This is useful for, for example, macro functions, which literally receive
+;;;  a form and environment as arguments, but may want to advertise the
+;;;  macro lambda list to debuggers instead.)
+;;; Methods should return true is a second value if they return a lambda list as
+;;; the primary value. If no good lambda list can be computed, the second value
+;;; must be NIL and the primary value is irrelevant.
+;;; If no method on this function returns a useful result, the function's
+;;; actual lambda list will be used.
+(defgeneric debug-lambda-list (client declarations)
+  (:method (client declarations)
+    (declare (ignore client declarations))
+    (values nil nil)))
 
 ;;; Compile the lambda in MODULE, returning the resulting
 ;;; CFUNCTION.
@@ -1767,12 +1795,15 @@
           (values body declarations docstring)
           (parse-body body :documentation t))
     (check-declarations decls)
-    (let* ((name (if namep
-                     name
-                     (compute-lambda-name lambda-list)))
+    (let* ((name (cond ((debug-lambda-name m:*client* decls))
+                       (namep name)
+                       (t (backup-lambda-name lambda-list))))
+           (debug-lambda-list (multiple-value-bind (dll validp)
+                                  (debug-lambda-list m:*client* decls)
+                                (if validp dll lambda-list)))
            (function
              (make-cfunction module
-                             :name name :lambda-list lambda-list :doc doc))
+                             :name name :lambda-list debug-lambda-list :doc doc))
            (context (make-context :receiving t :function function
                                   :source source))
            (env (make-lexical-environment env))
