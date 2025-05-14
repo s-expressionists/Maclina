@@ -790,8 +790,9 @@
 (defun compile-lambda-form (form env context)
   ;; FIXME: We can probably handle this more efficiently (without consing
   ;; a closure) by using compile-with-lambda-list instead.
-  ;; FIXME: Check lexpr is actually a lambda expression.
   (let ((lexpr (car form)) (args (rest form)))
+    (unless (typep lexpr 'lambda-expression)
+      (error 'illegal-combination :form form))
     (compile-lambda-expression lexpr env context)
     (compile-call args env context)))
 
