@@ -19,7 +19,7 @@
   (:export #:value-cell-info #:value-cell-info-name)
   (:export #:constant-info #:constant-info-value)
   (:export #:env-info)
-  (:export #:cmodule #:make-cmodule #:cmodule-literals #:link)
+  (:export #:cmodule #:make-cmodule #:cmodule-literals #:cmodule-pc-map #:link)
   (:export #:cfunction #:cfunction-cmodule #:cfunction-nlocals
            #:cfunction-closed #:cfunction-final-entry-point
            #:cfunction-final-size

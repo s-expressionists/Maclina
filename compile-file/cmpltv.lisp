@@ -232,6 +232,23 @@
 
 ;;;
 
+(defclass module-debug-attr (attribute)
+  ((%name :initform (ensure-constant "module-debug-info"))
+   (%module :initarg :module :reader module)
+   ;; A sequence of DEBUG-INFOs (and DEBUG-INFO-FUNCTIONs)
+   (%infos :initarg :infos :reader infos :type sequence)))
+
+(defclass debug-info ()
+  ((%start :initarg :start :reader di-start :type (unsigned-byte 32))
+   (%end :initarg :end :reader di-end :type (unsigned-byte 32))))
+
+(defclass debug-info-function ()
+  (;; Doesn't inherit from debug-info since the function
+   ;; has a start and end already.
+   (%function :initarg :function :reader di-function :type creator)))
+
+;;;
+
 ;;; If this is true, symbols are avoided when possible, and attributes
 ;;; are not dumped. Experimental for use with chalybeate.
 (defvar *primitive* nil)
@@ -855,6 +872,19 @@
   (or (find-environment)
       (add-environment (make-instance 'environment-lookup))))
 
+(defgeneric process-debug-info (info))
+
+(defmethod process-debug-info ((info cmp:cfunction))
+  (make-instance 'debug-info-function
+    :function (ensure-function info)))
+
+(defun process-debug-infos (pc-map)
+  ;; For now the only debug info we dump is function markers.
+  ;; Doing source info will require a format for it.
+  (loop for info across pc-map
+        if (typep info 'cmp:cfunction)
+          collect (process-debug-info info)))
+
 (defun add-module (value)
   ;; Add the module first to prevent recursion.
   (let ((mod
@@ -868,6 +898,9 @@
      (make-instance 'setf-literals
        :module mod :literals (map 'simple-vector #'ensure-module-literal
                                   (cmp:cmodule-literals value))))
+    (add-instruction
+     (make-instance 'module-debug-attr
+       :module mod :infos (process-debug-infos (cmp:cmodule-pc-map value))))
     mod))
 
 (defun ensure-module (module)

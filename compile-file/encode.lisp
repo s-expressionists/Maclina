@@ -61,6 +61,9 @@
     (ccell-set 103 nameind)
     (attribute 255 name nbytes . data)))
 
+(defparameter +di-ops+
+  '(:function 0))
+
 ;; how many bytes are needed to represent an index?
 (defvar *index-bytes*)
 
@@ -104,6 +107,12 @@
         (error "unknown mnemonic ~a" mnemonic))))
 
 (defun write-mnemonic (mnemonic stream) (write-byte (opcode mnemonic) stream))
+
+(defun debug-info-opcode (mnemonic)
+  (or (getf +di-ops+ mnemonic) (error "Unknown debug info mnemonic ~a" mnemonic)))
+
+(defun write-debug-info-mnemonic (mnemonic stream)
+  (write-byte (debug-info-opcode mnemonic) stream))
 
 (defun write-index (creator stream)
   (let ((position (index creator)))
@@ -463,6 +472,24 @@
   (write-b32 (+ *index-bytes* *index-bytes*) stream)
   (write-index (ll-function attr) stream)
   (write-index (lambda-list attr) stream))
+
+;;;
+
+(defgeneric info-length (debug-info))
+
+(defmethod encode ((attr module-debug-attr) stream)
+  (write-b32 (+ *index-bytes* 4 (reduce #'+ (infos attr) :key #'info-length))
+             stream)
+  (write-index (module attr) stream)
+  (let ((infos (infos attr)))
+    (write-b32 (length infos) stream)
+    (map nil (lambda (info) (encode info stream)) infos)))
+
+(defmethod encode ((info debug-info-function) stream)
+  (write-debug-info-mnemonic :function stream)
+  (write-index (di-function info) stream))
+(defmethod info-length ((info debug-info-function))
+  (+ 1 *index-bytes*))
 
 ;;;
 

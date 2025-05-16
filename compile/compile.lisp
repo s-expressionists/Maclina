@@ -1921,10 +1921,21 @@
           (incf index (- end position)))))
     bytecode))
 
+(defgeneric link-map-info (map-info))
+
+(defmethod link-map-info ((info m:map-info))
+  (setf (m:start info) (annotation-module-position (m:start info))
+        (m:end info) (annotation-module-position (m:end info))))
+
+(defmethod link-map-info ((info cfunction)))
+
+(defun link-pc-map (pc-map) (map nil #'link-map-info pc-map))
+
 ;;; Finish fixups for a module and return its final bytecode.
 (defun link (cmodule)
   (initialize-cfunction-positions cmodule)
   (resolve-fixup-sizes cmodule)
+  (link-pc-map (cmodule-pc-map cmodule))
   (create-module-bytecode cmodule))
 
 ;;; The compiler works with compilation environments, but for loading
@@ -1962,19 +1973,14 @@
 (defmethod load-literal-info (client (info env-info) env)
   (m:link-environment client (run-time-environment m:*client* env)))
 
-(defgeneric link-map-info (map-info))
+(defgeneric load-map-info (map-info))
 
-(defmethod link-map-info ((info m:map-info))
-  (setf (m:start info) (annotation-module-position (m:start info))
-        (m:end info) (annotation-module-position (m:end info)))
-  info)
+(defmethod load-map-info ((info m:map-info)) info)
+(defmethod load-map-info ((info cfunction)) (cfunction-info info))
 
-(defmethod link-map-info ((info cfunction))
-  (cfunction-info info))
-
-(defun link-pc-map (pc-map)
+(defun load-pc-map (pc-map)
   ;; Make a non-adjustable vector.
-  (map 'vector #'link-map-info pc-map))
+  (map 'vector #'load-map-info pc-map))
 
 ;;; Run down the hierarchy and link the compile time representations
 ;;; of modules and functions together into runtime objects.
@@ -2014,7 +2020,7 @@
               (lambda (info) (load-literal-info client info env))
               cmodule-literals)
     ;; Ditto for the PC map.
-    (setf (m:bytecode-module-pc-map bytecode-module) (link-pc-map pc-map)))
+    (setf (m:bytecode-module-pc-map bytecode-module) (load-pc-map pc-map)))
   (values))
 
 ;;; Given a cfunction, link constants and return an actual function.
