@@ -938,8 +938,11 @@
                   (compile-form valf env valc)
                   (cons var
                         (cond
-                          ((or (member var specials)
-                               (globally-special-p var env))
+                          ((globally-special-p var env)
+                           (incf special-binding-count)
+                           (make-instance 'trucler:global-special-variable-description
+                             :name var))
+                          ((member var specials)
                            (incf special-binding-count)
                            (make-instance 'trucler:local-special-variable-description
                              :name var))
