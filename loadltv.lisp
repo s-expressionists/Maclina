@@ -472,7 +472,9 @@ Did not initialize constants~{ #~d~}"
 (defmethod %load-instruction ((mnemonic (eql 'find-package)) stream)
   (let ((name (read-index stream)))
     (dbgprint " (find-package ~d)" name)
-    (setf (next-constant) (find-package (constant name)))))
+    (setf (next-constant) (let ((name (constant name)))
+                            (or (find-package name)
+                              (error "No package named ~s" name))))))
 
 (defmethod %load-instruction ((mnemonic (eql 'make-bignum)) stream)
   (let ((ssize (read-sb64 stream)))
