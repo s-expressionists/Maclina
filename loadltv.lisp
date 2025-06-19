@@ -240,6 +240,11 @@ Did not initialize constants~{ #~d~}"
 ;;; for one pretty simple function.
 (defun utf8-octets-to-string (bytes)
   (declare (type (simple-array (unsigned-byte 8) (*))))
+  (when (zerop (length bytes))
+    (return-from utf8-octets-to-string
+      ;; just in case the host has weird ideas about
+      ;; the element type of literal strings
+      (load-time-value (make-string 0 :element-type 'character) t)))
   (coerce
    (loop with len = (length bytes)
          with i = 0
