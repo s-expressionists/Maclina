@@ -879,7 +879,8 @@
 
 (defun canonicalize-binding (binding &optional source)
   (if (consp binding)
-      (destructure-syntax (binding name value) (binding :rest nil :source source)
+      (destructure-syntax (binding name &optional value)
+          (binding :rest nil :source source)
         (values name value))
       (values binding nil)))
 
