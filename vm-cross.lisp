@@ -656,6 +656,8 @@
                       (#.m:check-arg-count-=
                        (vm:check-arg-count-= (vm-arg-count vm) (next-long))
                        (incf ip))
+                      ((#.m:fdefinition #.m:called-fdefinition)
+                       (spush (car (constant (next-long)))) (incf ip))
                       (otherwise
                        (error "Unknown long opcode #x~x" (code)))))
                    (otherwise
