@@ -479,24 +479,30 @@
     (list (ensure-constant aet) +other-uaet+)))
 
 (defmethod add-constant ((value array))
-  (let* ((element-type-info (compute-element-type-info value))
-         (info (array-packing-info value))
-         (info-type (first info))
-         (arr (add-creator
-               value
-               (make-instance 'array-creator
-                 :prototype value :dimensions (array-dimensions value)
-                 :packing-info info :element-type-info element-type-info))))
-    (when (eq info-type :t) ; general - dump setf-arefs for elements.
-      ;; (we have to separate initialization here in case the array
-      ;;  contains itself. packed arrays can't contain themselves)
-      (add-instruction
-       (make-instance 'initialize-array
-         :array arr
-         :values (loop for i below (array-total-size value)
-                       for e = (row-major-aref value i)
-                       collect (ensure-constant e)))))
-    arr))
+  (multiple-value-bind (dims total-size)
+      ;; We dump all arrays as simple, which means we need to ignore anything
+      ;; past the fill pointer.
+      (if (array-has-fill-pointer-p value)
+          (let ((len (length value))) (values (list len) len))
+          (values (array-dimensions value) (array-total-size value)))
+    (let* ((element-type-info (compute-element-type-info value))
+           (info (array-packing-info value))
+           (info-type (first info))
+           (arr (add-creator
+                 value
+                 (make-instance 'array-creator
+                   :prototype value :dimensions dims
+                   :packing-info info :element-type-info element-type-info))))
+      (when (eq info-type :t) ; general - dump setf-arefs for elements.
+        ;; (we have to separate initialization here in case the array
+        ;;  contains itself. packed arrays can't contain themselves)
+        (add-instruction
+         (make-instance 'initialize-array
+           :array arr
+           :values (loop for i below total-size
+                         for e = (row-major-aref value i)
+                         collect (ensure-constant e)))))
+      arr)))
 
 (defun utf8-length (string)
   (loop for c across string
