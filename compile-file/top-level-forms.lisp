@@ -29,7 +29,8 @@
              (compile-toplevel-progn forms env)))
           ((or (and ct (not lt)) (and (not ct) (not lt) e ctt))
            ;; evaluate
-           (cmp:eval-progn forms env))
+           (dolist (form forms)
+             (cmp:eval form env)))
           (t
            ;; (or (and (not ct) (not lt) e (not ctt)) (and (not ct) (not lt) (not e)))
            ;; discard
