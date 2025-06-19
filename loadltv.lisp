@@ -525,6 +525,22 @@ Did not initialize constants~{ #~d~}"
     (dbgprint " (make-character #x~x) ; ~c" code char)
     (setf (next-constant) char)))
 
+(defun specific-host (host)
+  ;; cmpltv only puts in an actual host if it's a string or list of strings,
+  ;; which should be valid according to CLHS. Otherwise it puts :unspecific.
+  ;; This is because implementations in practice vary on what hosts are, and
+  ;; in particular SBCL seems to use an undocumented structure.
+  ;; And, some implementations, such as SBCL or Clasp until I fix it, do not
+  ;; accept :unspecific which is also supposed to work by my reading of the
+  ;; spec.
+  ;; So, if we have a host of :unspecific, we treat it as if the argument
+  ;; was not supplied to make-pathname, and use make-pathname's defaulting.
+  ;; This may cause problems down the line if someone actually uses an
+  ;; :unspecific host and this means something genuinely less specific.
+  (if (eq host :unspecific)
+      (pathname-host *default-pathname-defaults*)
+      host))
+
 (defmethod %load-instruction ((mnemonic (eql 'make-pathname)) stream)
   (let ((hosti (read-index stream)) (devicei (read-index stream))
         (directoryi (read-index stream)) (namei (read-index stream))
@@ -532,7 +548,7 @@ Did not initialize constants~{ #~d~}"
     (dbgprint " (make-pathname ~d ~d ~d ~d ~d ~d)"
               hosti devicei directoryi namei typei versioni)
     (setf (next-constant)
-          (make-pathname :host (constant hosti)
+          (make-pathname :host (specific-host (constant hosti))
                          :device (constant devicei)
                          :directory (constant directoryi)
                          :name (constant namei)
