@@ -86,19 +86,27 @@
   (write-b16 *minor-version* stream))
 
 ;; Used in disltv as well.
-(defun write-bytecode (instructions stream)
-  (let* ((nobjs (count-if (lambda (i) (typep i 'creator)) instructions))
+(defun write-bytecode (fasl-unit stream)
+  (write-bytecode-header (instruction-count fasl-unit) stream)
+  (write-bytecode-instructions fasl-unit stream))
+
+(defun write-bytecode-header (ninstructions stream)
+  (write-magic stream)
+  (write-version stream)
+  (write-b64 ninstructions stream))
+
+;; Write the instructions of the body (and not the header).
+;; This is used in COMPILE-FILES.
+;; Return value undefined.
+(defun write-bytecode-instructions (fasl-unit stream)
+  (assign-indices (instructions fasl-unit))
+  (dbgprint "Instructions:~{~&~a~}" (instructions fasl-unit))
+  (let* ((nobjs (object-count fasl-unit))
          ;; Next highest power of two bytes, roughly
-         (*index-bytes* (ash 1 (1- (ceiling (integer-length nobjs) 8))))
-         ;; 1+ for the init-object-array.
-         (ninsts (1+ (length instructions))))
-    (assign-indices instructions)
-    (dbgprint "Instructions:~{~&~a~}" instructions)
-    (write-magic stream)
-    (write-version stream)
-    (write-b64 ninsts stream)
-    (encode (make-instance 'init-object-array :count nobjs) stream)
-    (map nil (lambda (inst) (encode inst stream)) instructions)))
+         (*index-bytes* (ash 1 (1- (ceiling (integer-length nobjs) 8)))))         
+    (encode (init-object-array fasl-unit) stream)
+    (map nil (lambda (inst) (encode inst stream)) (instructions fasl-unit))
+    (values)))
 
 (defun opcode (mnemonic)
   (let ((inst (assoc mnemonic +ops+ :test #'equal)))

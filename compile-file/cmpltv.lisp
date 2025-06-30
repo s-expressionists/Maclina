@@ -201,6 +201,29 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
+;;; FASL units
+;;;
+;;; These are the overall product of this file, and its main interface,
+;;; WITH-CONSTANTS and FINISH-FASL-UNIT.
+;;; A fasl-unit is conceptually just a sequence of instructions
+;;; beginning with an INIT-OBJECT-ARRAY. An actual FASL is the a header followed
+;;; by the encoding of one or more FASL-UNITs.
+
+(defclass fasl-unit ()
+  ((%init-object-array :reader init-object-array :initarg :init-object-array
+                       :type init-object-array)
+   (%instructions :reader instructions :initarg :instructions)))
+
+(defgeneric object-count (fasl-unit))
+(defmethod object-count ((fasl-unit fasl-unit))
+  (init-object-array-count (init-object-array fasl-unit)))
+
+(defgeneric instruction-count (fasl-unit))
+(defmethod instruction-count ((fasl-unit fasl-unit))
+  (1+ (length (instructions fasl-unit))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
 ;;; Attributes are bonus, possibly implementation-defined stuff also in the file.
 ;;; Based closely on Java attributes, the loader has to ignore any it doesn't
 ;;; understand, so it's verboten for attributes to do anything semantically
@@ -327,6 +350,13 @@
          (*vcell-coalesce* (make-hash-table))
          (*environment-coalesce* nil))
      ,@body))
+
+;;; Should be called from within WITH-CONSTANTS, obviously.
+(defun finish-fasl-unit ()
+  (let ((nobjs (count-if (lambda (i) (typep i 'creator)) *instructions*)))
+    (make-instance 'fasl-unit
+      :init-object-array (make-instance 'init-object-array :count nobjs)
+      :instructions (reverse *instructions*))))
 
 (defun find-constant (value)
   (%find-constant value #+(or) *instructions*))
