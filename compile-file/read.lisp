@@ -55,5 +55,8 @@
                        (t (find-package client package-indicator)))))
         (cond ((null package) (error "No package named ~a" package-indicator))
               (internp (intern symbol-name package))
-              ((find-symbol symbol-name package))
-              (t (error "No symbol ~a:~a" package-indicator symbol-name))))))
+              (t (multiple-value-bind (symbol accessiblep)
+                     (find-symbol symbol-name package)
+                   (if accessiblep
+                       symbol
+                       (error "No symbol ~a:~a" package-indicator symbol-name))))))))
