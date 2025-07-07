@@ -57,9 +57,15 @@ If the compiler encounters an unresolvable problem it can of course fail immedia
                           (push r unknown-references)
                           (continue r)))
                       (style-warning
-                        (lambda (w) (signal w) (incf nstylewarnings)))
+                        (lambda (w)
+                          (warn w)
+                          (incf nstylewarnings)
+                          (muffle-warning w)))
                       ((and warning (not style-warning))
-                        (lambda (w) (signal w) (incf nwarnings)))
+                        (lambda (w)
+                          (warn w)
+                          (incf nwarnings)
+                          (muffle-warning w)))
                       (error
                         (lambda (e) (signal e) (incf nerrors))))
                    ;; resolve-reference may signal warnings, which we want
