@@ -5,7 +5,7 @@
 ;;; expansions for backquote and such, and lets us hook up #. to evaluate in
 ;;; the correct environment.
 
-(defclass reader-client () ())
+(defclass reader-client (eclector.parse-result:parse-result-client) ())
 
 ;;; We have our own variable here rather than using m:*client* again because
 ;;; we need this stuff to work regardless of m:*client*. But compile-file also
@@ -60,3 +60,23 @@
                    (if accessiblep
                        symbol
                        (error "No symbol ~a:~a" package-indicator symbol-name))))))))
+
+(defclass source-location ()
+  ((%pathname :initarg :pathname :reader source-location-pathname)
+   (%position :initarg :position :reader source-location-position)))
+(defmethod print-object ((obj source-location) stream)
+  (if *print-escape*
+      (call-next-method)
+      (format stream "~a position ~a" (source-location-pathname obj)
+              (source-location-position obj))))
+
+;;; we need a primary method here. But we just want to pass the compiler
+;;; raw forms, so we don't actually make any results.
+(defmethod eclector.parse-result:make-expression-result
+    ((client reader-client) result children source)
+  (declare (ignore children))
+  (when (boundp 'cmp:*source-locations*)
+    (setf (gethash result cmp:*source-locations*)
+          (make-instance 'source-location
+            :pathname *compile-file-pathname* :position source)))
+  result)

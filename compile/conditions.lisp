@@ -18,3 +18,9 @@
 (define-condition compiler-program-style-warning
     (program-condition style-warning compiler-condition)
   ())
+
+(defmethod print-object :after ((obj compiler-condition) stream)
+  (unless *print-escape*
+    (let ((source (source obj)))
+      (when source
+        (format stream "~&    at ~a~%" source)))))

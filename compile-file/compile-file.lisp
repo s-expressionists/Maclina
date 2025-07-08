@@ -41,7 +41,8 @@
 		with *compile-time-too* = nil
 		with *environment* = environment
 		with eclector.base:*client* = reader-client
-		for form = (eclector.reader:read input nil eof)
+                with cmp:*source-locations* = (make-hash-table)
+		for form = (eclector.parse-result:read reader-client input nil eof)
 		until (eq form eof)
 		when *compile-print*
                   do (describe-form form)
