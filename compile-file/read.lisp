@@ -75,8 +75,8 @@
 (defmethod eclector.parse-result:make-expression-result
     ((client reader-client) result children source)
   (declare (ignore children))
-  (when (boundp 'cmp:*source-locations*)
+  (when (and (boundp 'cmp:*source-locations*) *source-pathname*)
     (setf (gethash result cmp:*source-locations*)
           (make-instance 'source-location
-            :pathname *compile-file-pathname* :position source)))
+            :pathname *source-pathname* :position source)))
   result)

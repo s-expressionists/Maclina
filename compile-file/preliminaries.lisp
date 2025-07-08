@@ -12,6 +12,13 @@
 (defparameter *major-version* 0)
 (defparameter *minor-version* 16)
 
+;;; Like *compile-file-pathname*, but can be controlled by the user. This
+;;; pathname is by default used in source info, so setting this pathname controls
+;;; what path is used for source info reported and saved by the compiler.
+;;; (*compile-file-pathname* also cannot be used directly because the effect of
+;;;  binding or setting it is undefined.)
+(defparameter *source-pathname* nil)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Debugging
