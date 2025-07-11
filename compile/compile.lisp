@@ -587,9 +587,7 @@
                      &key block-name declarations source)
   (declare (ignore block-name declarations source))
   (link-function (apply #'compile-into (make-cmodule) lambda-expression env keys)
-                 (if (lexical-environment-p env)
-                     (global-environment env)
-                     env)))
+                 (trucler:global-environment m:*client* env)))
 
 ;;; As CL:COMPILE, but doesn't mess with function bindings.
 (defun compile (lambda-expression

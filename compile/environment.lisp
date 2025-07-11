@@ -43,7 +43,7 @@
 
 (defmethod trucler:global-environment (client (env lexical-environment))
   (declare (ignore client))
-  (global-environment env))
+  (trucler:global-environment client (global-environment env)))
 
 (defmethod trucler:describe-variable
     (client (env lexical-environment) name)
