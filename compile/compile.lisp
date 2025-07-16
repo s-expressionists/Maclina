@@ -361,6 +361,8 @@
 
 (defun emit-const (context index) (assemble context m:const index))
 (defun emit-fdefinition (context index) (assemble context m:fdefinition index))
+(defun emit-called-fdefinition (context index)
+  (assemble context m:called-fdefinition index))
 
 (defun emit-parse-key-args (context max-count key-count key-literal-start aok-p)
   (let ((lit (if (zerop key-count) ; don't need a literal then
@@ -742,13 +744,14 @@
         (unless (eq form expansion)
           (return-from compile-combination
             (compile-form expansion env context)))))
-    (emit-fdefinition context (fdefinition-index (trucler:name info) context))
+    (emit-called-fdefinition context
+                             (fdefinition-index (trucler:name info) context))
     (compile-call (rest form) env context)))
 
 (defmethod compile-combination ((info null) form env context)
   (warn-unknown 'unknown-function
                 :name (first form) :source (context-source context))
-  (emit-fdefinition context (fdefinition-index (first form) context))
+  (emit-called-fdefinition context (fdefinition-index (first form) context))
   (compile-call (rest form) env context))
 
 (defmethod compile-combination ((info trucler:local-function-description)
