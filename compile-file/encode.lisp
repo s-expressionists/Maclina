@@ -62,7 +62,15 @@
     (attribute 255 name nbytes . data)))
 
 (defparameter +di-ops+
-  '(:function 0))
+  '(:function 0
+    :vars 1
+    :location 2
+    :decls 3
+    :the 4
+    :block 5
+    :macro 7
+    :if 8
+    :tagbody 9))
 
 ;; how many bytes are needed to represent an index?
 (defvar *index-bytes*)
@@ -498,6 +506,57 @@
   (write-index (di-function info) stream))
 (defmethod info-length ((info debug-info-function))
   (+ 1 *index-bytes*))
+
+(defmethod encode ((info debug-info-declarations) stream)
+  (write-debug-info-mnemonic :declarations stream)
+  (write-b32 (start info) stream)
+  (write-b32 (end info) stream)
+  (write-index (declarations info) stream))
+(defmethod info-length ((info debug-info-declarations))
+  (+ 1 4 4 *index-bytes*))
+
+(defun write-receiving (receiving stream)
+  (write-b32 (etypecase receiving
+               ((unsigned-byte 31) receiving)
+               ((eql t) -1))
+             stream))
+
+(defmethod encode ((info debug-info-the) stream)
+  (write-debug-info-mnemonic :the stream)
+  (write-b32 (start info) stream)
+  (write-b32 (end info) stream)
+  (write-index (the-type info) stream)
+  (write-receiving (receiving info) stream))
+(defmethod info-length ((info debug-info-the))
+  (+ 1 4 4 *index-bytes* 4))
+
+(defmethod encode ((info debug-info-if) stream)
+  (write-debug-info-mnemonic :if stream)
+  (write-b32 (start info) stream)
+  (write-b32 (end info) stream)
+  (write-receiving (receiving info) stream))
+(defmethod info-length ((info debug-info-if))
+  (+ 1 4 4 4))
+
+(defmethod encode ((info debug-info-tagbody) stream)
+  (write-debug-info-mnemonic :tagbody stream)
+  (write-b32 (start info) stream)
+  (write-b32 (end info) stream)
+  (write-b16 (length (tags info)) stream)
+  (loop for (tag . ip) in (tags info)
+        do (write-index tag stream)
+           (write-b32 ip stream)))
+(defmethod info-length ((info debug-info-tagbody))
+  (+ 1 4 4 2 (* (length (tags info)) (+ *index-bytes* 4))))
+
+(defmethod encode ((info debug-info-block) stream)
+  (write-debug-info-mnemonic :block stream)
+  (write-b32 (start info) stream)
+  (write-b32 (end info) stream)
+  (write-index (name info) stream)
+  (write-receiving (receiving info) stream))
+(defmethod info-length ((info debug-info-block))
+  (+ 1 4 4 *index-bytes* 4))
 
 ;;;
 

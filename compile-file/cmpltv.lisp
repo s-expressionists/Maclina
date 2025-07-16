@@ -262,13 +262,30 @@
    (%infos :initarg :infos :reader infos :type sequence)))
 
 (defclass debug-info ()
-  ((%start :initarg :start :reader di-start :type (unsigned-byte 32))
-   (%end :initarg :end :reader di-end :type (unsigned-byte 32))))
+  ((%start :initarg :start :reader start :type (unsigned-byte 32))
+   (%end :initarg :end :reader end :type (unsigned-byte 32))))
 
 (defclass debug-info-function ()
   (;; Doesn't inherit from debug-info since the function
    ;; has a start and end already.
    (%function :initarg :function :reader di-function :type creator)))
+
+(defclass debug-info-declarations (debug-info)
+  ((%declarations :initarg :declarations :reader declarations)))
+
+(defclass debug-info-the (debug-info)
+  ((%type :initarg :type :reader the-type)
+   (%receiving :initarg :receiving :reader receiving)))
+
+(defclass debug-info-if (debug-info)
+  ((%receiving :initarg :receiving :reader receiving)))
+
+(defclass debug-info-tagbody (debug-info)
+  ((%tags :initarg :tags :reader tags)))
+
+(defclass debug-info-block (debug-info)
+  ((%name :initarg :name :reader name)
+   (%receiving :initarg :receiving :reader receiving)))
 
 ;;;
 
@@ -920,11 +937,38 @@
   (make-instance 'debug-info-function
     :function (ensure-function info)))
 
+(defmethod process-debug-info ((info m:declarations-info))
+  (make-instance 'debug-info-declarations
+    :start (m:start info) :end (m:end info)
+    :declarations (ensure-constant (m:declarations info))))
+
+(defmethod process-debug-info ((info m:the-info))
+  (make-instance 'debug-info-the
+    :start (m:start info) :end (m:end info)
+    :type (ensure-constant (m:the-type info))
+    :receiving (m:receiving info)))
+
+(defmethod process-debug-info ((info m:if-info))
+  (make-instance 'debug-info-if
+    :start (m:start info) :end (m:end info)
+    :receiving (m:receiving info)))
+
+(defmethod process-debug-info ((info m:tagbody-info))
+  (make-instance 'debug-info-tagbody
+    :start (m:start info) :end (m:end info)
+    :tags (loop for (tag . ip) in (m:tags info)
+                collect (cons (ensure-constant tag) ip))))
+
+(defmethod process-debug-info ((info m:block-info))
+  (make-instance 'debug-info-block
+    :start (m:start info) :end (m:end info)
+    :name (ensure-constant (m:name info))
+    :receiving (m:receiving info)))
+
 (defun process-debug-infos (pc-map)
-  ;; For now the only debug info we dump is function markers.
-  ;; Doing source info will require a format for it.
+  ;; Doing source info will require a format for it, so we only dump some infos.
   (loop for info across pc-map
-        if (typep info 'cmp:cfunction)
+        if (typep info '(or cmp:cfunction m:program-structure-info))
           collect (process-debug-info info)))
 
 (defun add-module (value)

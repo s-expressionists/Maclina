@@ -27,6 +27,34 @@
 (defclass source-info (map-info)
   ((%source :initarg :source :reader source)))
 
+;;; These structure-info objects record some details of the original Lisp code
+;;; that are otherwise lost in bytecode compilation. Recording this information
+;;; makes it easier to performance further analysis and compilation.
+(defclass program-structure-info (map-info) ())
+
+(defclass declarations-info (program-structure-info)
+  ((%declarations :initarg :declarations :reader declarations)))
+
+(defclass the-info (program-structure-info)
+  ((%type :initarg :type :reader the-type)
+   ;; Indicates what values are typed. As in the bytecode compiler.
+   (%receiving :initarg :receiving :reader receiving)))
+
+(defclass if-info (program-structure-info)
+  (;; Indicates what values are returned by the IF form.
+   (%receiving :initarg :receiving :reader receiving)))
+
+(defclass tagbody-info (program-structure-info)
+  (;; An alist (go-tag . label)
+   (%tags :initarg :tags :reader tags)))
+
+;; Also used for information about CATCH.
+(defclass block-info (program-structure-info)
+  (;; Name of the block. For CATCH forms, this will be the symbol CL:CATCH.
+   (%name :initarg :name :reader name)
+   ;; Indicates what values are returned by the BLOCK or CATCH form.
+   (%receiving :initarg :receiving :reader receiving)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Allow bytecode functions to be infos.

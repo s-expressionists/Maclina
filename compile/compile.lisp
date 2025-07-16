@@ -361,8 +361,6 @@
 
 (defun emit-const (context index) (assemble context m:const index))
 (defun emit-fdefinition (context index) (assemble context m:fdefinition index))
-(defun emit-called-fdefinition (context index)
-  (assemble context m:called-fdefinition index))
 
 (defun emit-parse-key-args (context max-count key-count key-literal-start aok-p)
   (let ((lit (if (zerop key-count) ; don't need a literal then
@@ -548,7 +546,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; Source locations
+;;; Source locations and other PC map info
 ;;;
 
 (defvar *source-locations*)
@@ -558,6 +556,9 @@
       (multiple-value-bind (sl presentp) (gethash form *source-locations*)
         (if presentp sl default))
       default))
+
+;;; Set to true to output program structure info. This entails some overhead.
+(defvar *generate-program-structure-info* nil)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -744,14 +745,13 @@
         (unless (eq form expansion)
           (return-from compile-combination
             (compile-form expansion env context)))))
-    (emit-called-fdefinition context
-                             (fdefinition-index (trucler:name info) context))
+    (emit-fdefinition context (fdefinition-index (trucler:name info) context))
     (compile-call (rest form) env context)))
 
 (defmethod compile-combination ((info null) form env context)
   (warn-unknown 'unknown-function
                 :name (first form) :source (context-source context))
-  (emit-called-fdefinition context (fdefinition-index (first form) context))
+  (emit-fdefinition context (fdefinition-index (first form) context))
   (compile-call (rest form) env context))
 
 (defmethod compile-combination ((info trucler:local-function-description)
@@ -1199,6 +1199,13 @@
     (let ((then-label (make-label))
           (done-label (make-label)))
       (emit-jump-if context then-label)
+      (when *generate-program-structure-info*
+        (let ((else-label (make-label)))
+          (emit-label context else-label)
+          (push-map-info (make-instance 'm:if-info
+                           :start else-label :end done-label
+                           :receiving (context-receiving context))
+                         context)))
       (compile-form else env context)
       (emit-jump context done-label)
       (emit-label context then-label)
@@ -1247,9 +1254,11 @@
 (defun go-tag-p (object) (typep object '(or symbol integer)))
 
 (defmethod compile-special ((op (eql 'tagbody)) form env context)
-  (let ((statements (rest form))
-        (new-tags (tags env))
-        (tagbody-dynenv (gensym "TAG-DYNENV")))
+  (let* ((statements (rest form))
+         (new-tags (tags env))
+         (tagbody-dynenv (gensym "TAG-DYNENV"))
+         (gspi-p *generate-program-structure-info*)
+         (end (when gspi-p (make-label))))
     (unless (proper-list-p statements)
       (error 'improper-body :body statements :source (context-source context)))
     (multiple-value-bind (env stmt-context-1)
@@ -1259,18 +1268,31 @@
       (let* ((dynenv-info (var-info tagbody-dynenv env))
              (stmt-context (new-context stmt-context-1
                                         :receiving 0
-                                        :dynenv (list dynenv-info))))
+                                        :dynenv (list dynenv-info)))
+             (local-tags nil))
         (dolist (statement statements)
           (when (go-tag-p statement)
-            (push (list* statement dynenv-info (make-label)) new-tags)))
+            (let ((label (make-label)))
+              (push (list* statement dynenv-info label) new-tags)
+              (when gspi-p
+                (push (cons statement label) local-tags)))))
         (let ((env (make-lexical-environment env :tags new-tags)))
           ;; Bind the dynamic environment.
           (emit-entry-or-save-sp context dynenv-info)
+          ;; Emit structural map info if we're doing that.
+          (when gspi-p
+            (let ((start (make-label)))
+              (emit-label context start)
+              (push-map-info (make-instance 'm:tagbody-info
+                               :start start :end end :tags local-tags)
+                             context)))
           ;; Compile the body, emitting the tag destination labels.
           (dolist (statement statements)
             (if (go-tag-p statement)
                 (emit-label context (cddr (assoc statement (tags env))))
                 (compile-form statement env stmt-context))))
+        (when gspi-p
+          (emit-label context end))
         (maybe-emit-entry-close context dynenv-info))
       ;; return nil if we really have to
       (unless (eql (context-receiving context) 0)
@@ -1326,6 +1348,16 @@
              (normal-label (make-label)))
         ;; Bind the dynamic environment.
         (emit-entry-or-save-sp context dynenv-info)
+        ;; Output structure info.
+        (when *generate-program-structure-info*
+          (let ((start (make-label)))
+            (emit-label context start)
+            (push-map-info (make-instance 'm:block-info
+                             :start start :end label
+                             :name name
+                             :receiving (context-receiving context))
+                           context)))
+        ;; Build the environment to compile the body in.
         (let ((env (make-lexical-environment
                     env
                     :blocks (acons name (cons dynenv-info label)
@@ -1364,6 +1396,13 @@
     (let ((target (make-label)))
       (compile-form tag env (new-context context :receiving 1))
       (emit-catch context target)
+      (when *generate-program-structure-info*
+        (let ((start (make-label)))
+          (emit-label context start)
+          (push-map-info (make-instance 'm:block-info
+                           :start start :end target
+                           :name 'catch :receiving (context-receiving context))
+                         context)))
       (compile-progn body env (new-context context :dynenv '(:catch)))
       (assemble context m:catch-close)
       (emit-label context target))))
@@ -1575,25 +1614,40 @@
         (compile-literal nil env context))))
 
 (defmethod compile-special ((op (eql 'the)) form env context)
-  ;; ignore
   (destructure-syntax (the type form) (form :source (context-source context))
-    (declare (ignore type))
-    (compile-form form env context)))
+    (compile-form form env context)
+    (when *generate-program-structure-info*
+      ;; The annotation goes AFTER the computation that produces it, so that
+      ;; for example receiving=1 means "the mostly recently pushed datum at
+      ;; this IP is of this type".
+      (let ((lab (make-label)))
+        (emit-label context lab)
+        (push-map-info (make-instance 'm:the-info
+                         :start lab :end lab :type type
+                         :receiving (context-receiving context))
+                       context)))))
 
 ;;; Generate code to default an &optional or &key variable.
 (defun gen-1-default (defaultf -p env context)
   (let ((vcontext (new-context context :receiving 1))
         (slabel (make-label))
-        (alabel (when -p (make-label))))
+        (alabel (make-label)))
     (emit-jump-if-supplied vcontext slabel)
+    (when *generate-program-structure-info*
+      (let ((else-label (make-label)))
+        (emit-label vcontext else-label)
+        (push-map-info (make-instance 'm:if-info
+                         :start else-label :end alabel
+                         :receiving (if -p 2 1))
+                       vcontext)))
     (compile-form defaultf env vcontext)
     (when -p
       (assemble vcontext m:nil)
       (emit-jump vcontext alabel))
     (emit-label vcontext slabel)
     (when -p
-      (compile-literal 't env vcontext)
-      (emit-label vcontext alabel))))
+      (compile-literal 't env vcontext))
+    (emit-label vcontext alabel)))
 
 ;;; Generate code to bind one variable.
 ;;; Returns (values new-env new-context)
@@ -1926,13 +1980,19 @@
           (incf index (- end position)))))
     bytecode))
 
-(defgeneric link-map-info (map-info))
+(defgeneric link-map-info (map-info)
+  (:method-combination progn))
 
-(defmethod link-map-info ((info m:map-info))
+(defmethod link-map-info progn ((info m:map-info))
   (setf (m:start info) (annotation-module-position (m:start info))
         (m:end info) (annotation-module-position (m:end info))))
 
-(defmethod link-map-info ((info cfunction)))
+(defmethod link-map-info progn ((info m:tagbody-info))
+  (loop for pair in (m:tags info)
+        for label = (cdr pair)
+        do (setf (cdr pair) (annotation-module-position label))))
+
+(defmethod link-map-info progn ((info cfunction)))
 
 (defun link-pc-map (pc-map) (map nil #'link-map-info pc-map))
 

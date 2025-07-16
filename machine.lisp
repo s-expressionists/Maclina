@@ -28,6 +28,10 @@
   (:export #:bytecode-module-pc-map
            #:map-info #:start #:end
            #:source-info #:source)
+  (:export #:program-structure-info
+           #:declarations-info #:the-info #:if-info
+           #:tagbody-info #:block-info
+           #:receiving #:declarations #:the-type #:tags #:name)
   (:export #:info-at #:most-specific-info-at #:source-at #:function-at))
 
 ;;;; Definition of the virtual machine, used by both the compiler and the VM.
