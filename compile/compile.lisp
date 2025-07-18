@@ -556,9 +556,6 @@
         (if presentp sl default))
       default))
 
-;;; Set to true to output program structure info. This entails some overhead.
-(defvar *generate-program-structure-info* nil)
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Compilation
@@ -1233,13 +1230,12 @@
     (let ((then-label (make-label))
           (done-label (make-label)))
       (emit-jump-if context then-label)
-      (when *generate-program-structure-info*
-        (let ((else-label (make-label)))
-          (emit-label context else-label)
-          (push-map-info (make-instance 'm:if-info
-                           :start else-label :end done-label
-                           :receiving (context-receiving context))
-                         context)))
+      (let ((else-label (make-label)))
+        (emit-label context else-label)
+        (push-map-info (make-instance 'm:if-info
+                         :start else-label :end done-label
+                         :receiving (context-receiving context))
+                       context))
       (compile-form else env context)
       (emit-jump context done-label)
       (emit-label context then-label)
@@ -1291,8 +1287,7 @@
   (let* ((statements (rest form))
          (new-tags (tags env))
          (tagbody-dynenv (gensym "TAG-DYNENV"))
-         (gspi-p *generate-program-structure-info*)
-         (end (when gspi-p (make-label))))
+         (end (make-label)))
     (unless (proper-list-p statements)
       (error 'improper-body :body statements :source (context-source context)))
     (multiple-value-bind (env stmt-context-1)
@@ -1308,25 +1303,22 @@
           (when (go-tag-p statement)
             (let ((label (make-label)))
               (push (list* statement dynenv-info label) new-tags)
-              (when gspi-p
-                (push (cons statement label) local-tags)))))
+              (push (cons statement label) local-tags))))
         (let ((env (make-lexical-environment env :tags new-tags)))
           ;; Bind the dynamic environment.
           (emit-entry-or-save-sp context dynenv-info)
-          ;; Emit structural map info if we're doing that.
-          (when gspi-p
-            (let ((start (make-label)))
-              (emit-label context start)
-              (push-map-info (make-instance 'm:tagbody-info
-                               :start start :end end :tags local-tags)
-                             context)))
+          ;; Emit structural map info.
+          (let ((start (make-label)))
+            (emit-label context start)
+            (push-map-info (make-instance 'm:tagbody-info
+                             :start start :end end :tags local-tags)
+                           context))
           ;; Compile the body, emitting the tag destination labels.
           (dolist (statement statements)
             (if (go-tag-p statement)
                 (emit-label context (cddr (assoc statement (tags env))))
                 (compile-form statement env stmt-context))))
-        (when gspi-p
-          (emit-label context end))
+        (emit-label context end)
         (maybe-emit-entry-close context dynenv-info))
       ;; return nil if we really have to
       (unless (eql (context-receiving context) 0)
@@ -1383,14 +1375,13 @@
         ;; Bind the dynamic environment.
         (emit-entry-or-save-sp context dynenv-info)
         ;; Output structure info.
-        (when *generate-program-structure-info*
-          (let ((start (make-label)))
-            (emit-label context start)
-            (push-map-info (make-instance 'm:block-info
-                             :start start :end label
-                             :name name
-                             :receiving (context-receiving context))
-                           context)))
+        (let ((start (make-label)))
+          (emit-label context start)
+          (push-map-info (make-instance 'm:block-info
+                           :start start :end label
+                           :name name
+                           :receiving (context-receiving context))
+                         context))
         ;; Build the environment to compile the body in.
         (let ((env (make-lexical-environment
                     env
@@ -1430,13 +1421,12 @@
     (let ((target (make-label)))
       (compile-form tag env (new-context context :receiving 1))
       (emit-catch context target)
-      (when *generate-program-structure-info*
-        (let ((start (make-label)))
-          (emit-label context start)
-          (push-map-info (make-instance 'm:block-info
-                           :start start :end target
-                           :name 'catch :receiving (context-receiving context))
-                         context)))
+      (let ((start (make-label)))
+        (emit-label context start)
+        (push-map-info (make-instance 'm:block-info
+                         :start start :end target
+                         :name 'catch :receiving (context-receiving context))
+                       context))
       (compile-progn body env (new-context context :dynenv '(:catch)))
       (assemble context m:catch-close)
       (emit-label context target))))
@@ -1650,16 +1640,15 @@
 (defmethod compile-special ((op (eql 'the)) form env context)
   (destructure-syntax (the type form) (form :source (context-source context))
     (compile-form form env context)
-    (when *generate-program-structure-info*
-      ;; The annotation goes AFTER the computation that produces it, so that
-      ;; for example receiving=1 means "the mostly recently pushed datum at
-      ;; this IP is of this type".
-      (let ((lab (make-label)))
-        (emit-label context lab)
-        (push-map-info (make-instance 'm:the-info
-                         :start lab :end lab :type type
-                         :receiving (context-receiving context))
-                       context)))))
+    ;; The annotation goes AFTER the computation that produces it, so that
+    ;; for example receiving=1 means "the mostly recently pushed datum at
+    ;; this IP is of this type".
+    (let ((lab (make-label)))
+      (emit-label context lab)
+      (push-map-info (make-instance 'm:the-info
+                       :start lab :end lab :type type
+                       :receiving (context-receiving context))
+                     context))))
 
 ;;; Generate code to default an &optional or &key variable.
 (defun gen-1-default (defaultf -p env context)
@@ -1667,13 +1656,12 @@
         (slabel (make-label))
         (alabel (make-label)))
     (emit-jump-if-supplied vcontext slabel)
-    (when *generate-program-structure-info*
-      (let ((else-label (make-label)))
-        (emit-label vcontext else-label)
-        (push-map-info (make-instance 'm:if-info
-                         :start else-label :end alabel
-                         :receiving (if -p 2 1))
-                       vcontext)))
+    (let ((else-label (make-label)))
+      (emit-label vcontext else-label)
+      (push-map-info (make-instance 'm:if-info
+                       :start else-label :end alabel
+                       :receiving (if -p 2 1))
+                     vcontext))
     (compile-form defaultf env vcontext)
     (when -p
       (assemble vcontext m:nil)
