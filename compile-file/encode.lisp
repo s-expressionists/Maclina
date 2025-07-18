@@ -558,6 +558,41 @@
 (defmethod info-length ((info debug-info-block))
   (+ 1 4 4 *index-bytes* 4))
 
+;;; Compute the FLAGS byte for a bytecode-debug-var.
+;;; This is 00NNDIIC: C = cellp, D = dynamic-extent-p,
+;;; NN = 01 for inline, 10 for notinline, 00 for default
+;;; II = 01 for ignore, 10 for ignorable, 00 for default
+(defun bdv-flags (bdv)
+  (let ((result 0))
+    (setf (ldb (byte 2 4) result)
+          (ecase (di-inline bdv) (cl:inline #b01) (cl:notinline #b10) ((nil) #b00))
+          (ldb (byte 1 3) result)
+          (if (dynamic-extent-p bdv) #b1 #b0)
+          (ldb (byte 2 1) result)
+          (ecase (di-ignore bdv) (cl:ignore #b01) (cl:ignorable #b10) ((nil) #b00))
+          (ldb (byte 1 0) result)
+          (if (cellp bdv) #b1 #b0))
+    result))
+
+(defmethod encode ((info debug-info-vars) stream)
+  (write-debug-info-mnemonic :vars stream)
+  (write-b32 (start info) stream)
+  (write-b32 (end info) stream)
+  (let ((vars (vars info)))
+    (write-b16 (length vars) stream)
+    (loop for var in vars
+          do (write-index (name var) stream)
+             (write-b16 (frame-index var) stream)
+             (write-byte (bdv-flags var) stream)
+             (write-b16 (length (declarations var)) stream)
+             (loop for decl in (declarations var)
+                   do (write-index decl stream)))))
+(defmethod info-length ((info debug-info-vars))
+  (+ 1 4 4 2
+     (loop for var in (vars info)
+           sum (+ *index-bytes* 2 1 2)
+           sum (* *index-bytes* (length (declarations var))))))
+
 ;;;
 
 (defmethod encode ((init init-object-array) stream)

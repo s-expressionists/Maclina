@@ -966,7 +966,7 @@
                              :frame-end frame-end
                              :dynenv (make-list special-binding-count
                                                 :initial-element :special)))
-              (igninfos nil))
+              (lexinfos nil))
           ;; Generate the bind and special-bind instructions.
           ;; We generate one bind for each block of contiguous lexicals.
           ;; We bind the most recently pushed values first, so in reverse order,
@@ -974,7 +974,7 @@
           (loop with nlex = 0
                 for (name . info) in new-bindings
                 if (typep info 'trucler:lexical-variable-description)
-                  do (incf nlex) (push info igninfos)
+                  do (incf nlex) (push info lexinfos)
                 else ; special
                 do ; first finish any lexical binding.
                    (when (plusp nlex)
@@ -987,10 +987,23 @@
                         (when (plusp nlex)
                           (emit-bind post-binding-context nlex
                                      (- frame-end nlex))))
-          ;; Finally, the actual body.
-          (compile-progn body post-binding-env post-binding-context)
+          ;; Generate structure/debug info about the lexical bindings.
+          ;; We take the beginning of the bindings to be here, even though
+          ;; that may be after possibly several special-bind/bind instructions,
+          ;; because the variables can only ever be used in this progn regardless.
+          (if (null lexinfos)
+              ;; Finally, the actual body.
+              (compile-progn body post-binding-env post-binding-context)
+              (let ((start (make-label)) (end (make-label)))
+                (emit-label post-binding-context start)
+                (push-map-info (make-instance 'm:vars-info
+                                 :start start :end end
+                                 :bindings lexinfos)
+                               post-binding-context)
+                (compile-progn body post-binding-env post-binding-context)
+                (emit-label context end)))
           (emit-unbind post-binding-context special-binding-count)
-          (warn-ignorance igninfos (context-source context)))))))
+          (warn-ignorance lexinfos (context-source context)))))))
 
 (defun compile-let* (bindings decls body env context
                      &key (block-name nil block-name-p))
@@ -1001,7 +1014,8 @@
   (let ((special-binding-count 0)
         (specials (extract-specials decls))
         (inner-context context)
-        (lexinfos nil))
+        (lexinfos nil)
+        (end (make-label)))
     (dolist (binding bindings)
       (multiple-value-bind (var valf)
           (canonicalize-binding
@@ -1019,10 +1033,15 @@
               (t
                (setf (values env inner-context)
                      (bind-vars (list var) env inner-context decls))
-               (let ((info (var-info var env)))
+               (let ((info (var-info var env)) (start (make-label)))
                  (push info lexinfos)
                  (maybe-emit-make-cell info inner-context)
-                 (assemble inner-context m:set (frame-offset info)))))))
+                 (assemble inner-context m:set (frame-offset info))
+                 (emit-label inner-context start)
+                 (push-map-info (make-instance 'm:vars-info
+                                  :start start :end end
+                                  :bindings (list info))
+                                inner-context))))))
     (let ((new-env (if specials
                        ;; We do this to make sure special declarations get
                        ;; through even if this form doesn't bind them.
@@ -1033,6 +1052,7 @@
       (if block-name-p
           (compile-block block-name body new-env inner-context)
           (compile-progn body new-env inner-context)))
+    (emit-label context end)
     (emit-unbind context special-binding-count)
     (warn-ignorance lexinfos (context-source context))))
 
@@ -1064,11 +1084,18 @@
       (check-declarations decls (context-source context))
       (multiple-value-bind (env context)
           (bind-fvars (mapcar #'car definitions) env context decls)
-        (compile-progn body (add-declarations env decls) context)
-        (warn-ignorance
-         (loop for (name) in definitions
-               collect (fun-info name env))
-         (context-source context))))))
+        (let ((infos (loop for (name) in definitions
+                           collect (fun-info name env))))
+          (if (null infos)
+              (compile-progn body (add-declarations env decls) context)
+              (let ((start (make-label)) (end (make-label)))
+                (emit-label context start)
+                (push-map-info (make-instance 'm:vars-info
+                                 :start start :end end :bindings infos)
+                               context)
+                (compile-progn body (add-declarations env decls) context)
+                (emit-label context end)))
+          (warn-ignorance infos (context-source context)))))))
 
 (defmethod compile-special ((operator (eql 'labels)) form env context)
   (destructure-syntax (labels definitions . body)
@@ -1088,7 +1115,7 @@
       (multiple-value-bind (new-env new-context)
           (bind-fvars (mapcar #'first definitions) env context decls)
         (let* ((module (context-module context))
-               (igninfos nil)
+               (lexinfos nil)
                (closures
                  (loop for definition in definitions
                        for source = (expr-source-location
@@ -1105,7 +1132,7 @@
                                       :block-name bname))))
                        for literal-index = (cfunction-literal-index fun context)
                        for info = (fun-info name new-env)
-                       do (push info igninfos)
+                       do (push info lexinfos)
                        if (zerop (length (cfunction-closed fun)))
                          do (emit-const context literal-index)
                        else
@@ -1118,8 +1145,16 @@
             (loop for var across (cfunction-closed (car closure))
                   do (reference-lexical-variable var new-context))
             (assemble context m:initialize-closure (cdr closure)))
-          (compile-progn body (add-declarations new-env decls) new-context)
-          (warn-ignorance igninfos (context-source context)))))))
+          (if (null lexinfos)
+              (compile-progn body (add-declarations new-env decls) new-context)
+              (let ((start (make-label)) (end (make-label)))
+                (emit-label new-context start)
+                (push-map-info (make-instance 'm:vars-info
+                                 :start start :end end :bindings lexinfos)
+                               new-context)
+                (compile-progn body (add-declarations new-env decls) new-context)
+                (emit-label new-context end)))
+          (warn-ignorance lexinfos (context-source context)))))))
 
 (defgeneric compile-setq-1 (info var value-form environment context))
 
@@ -1649,9 +1684,9 @@
       (compile-literal 't env vcontext))
     (emit-label vcontext alabel)))
 
-;;; Generate code to bind one variable.
+;;; Generate code to bind one variable. Used for lambda lists.
 ;;; Returns (values new-env new-context)
-(defun gen-1-bind (var specialp env context decls)
+(defun gen-1-bind (var specialp env context decls end)
   (cond (specialp
          (emit-special-bind context var)
          (values (add-specials (list var) env)
@@ -1659,9 +1694,13 @@
         (t
          (setf (values env context)
                (bind-vars (list var) env context decls))
-         (let ((info (var-info var env)))
+         (let ((info (var-info var env)) (start (make-label)))
            (maybe-emit-make-cell info context)
-           (assemble context m:set (frame-offset info)))
+           (assemble context m:set (frame-offset info))
+           (emit-label context start)
+           (push-map-info (make-instance 'm:vars-info
+                            :start start :end end :bindings (list info))
+                          context))
          (values env context))))
 
 ;;; Deal with lambda lists. Compile the body with the lambda vars bound.
@@ -1687,7 +1726,11 @@
            (specials (extract-specials decls))
            (special-binding-count 0)
            ;; A list of lexical infos to check for ignoredness.
-           (igninfos nil))
+           (igninfos nil)
+           ;; End of the function, used for debug info.
+           ;; This is slightly redundant with the label in compile-lambda,
+           ;; but that's not a big deal.
+           (end (make-label)))
       (setf (values new-env context) (bind-vars required env context decls))
       (emit-label context entry-point)
       ;; Generate argument count check.
@@ -1713,6 +1756,12 @@
                  (let ((info (var-info var new-env)))
                    (push info igninfos)
                    (maybe-emit-encell info context)))))
+        (unless (null igninfos)
+          (let ((start (make-label)))
+            (emit-label context start)
+            (push-map-info (make-instance 'm:vars-info
+                             :start start :end end :bindings igninfos)
+                           context)))
         (setq new-env (add-specials (intersection specials required) new-env)))
       (unless (zerop optional-count)
         (assemble context m:bind-optional-args min-count optional-count)
@@ -1726,9 +1775,9 @@
                  ;; Values are on the stack. Do the binding(s).
                  (when -p
                    (setf (values new-env context)
-                         (gen-1-bind -p pspecialp new-env context decls)))
+                         (gen-1-bind -p pspecialp new-env context decls end)))
                  (setf (values new-env context)
-                       (gen-1-bind opt ospecialp new-env context decls))
+                       (gen-1-bind opt ospecialp new-env context decls end))
                  ;; Bookkeeping
                  (if ospecialp
                      (incf special-binding-count)
@@ -1741,7 +1790,7 @@
         (let ((rspecialp (or (member rest specials)
                              (globally-special-p rest env))))
           (setf (values new-env context)
-                (gen-1-bind rest rspecialp new-env context decls))
+                (gen-1-bind rest rspecialp new-env context decls end))
           (if rspecialp
               (incf special-binding-count)
               (push (var-info rest new-env) igninfos))))
@@ -1766,9 +1815,9 @@
                  ;; Values are on the stack. Do the binding(s).
                  (when -p
                    (setf (values new-env context)
-                         (gen-1-bind -p pspecialp new-env context decls)))
+                         (gen-1-bind -p pspecialp new-env context decls end)))
                  (setf (values new-env context)
-                       (gen-1-bind var vspecialp new-env context decls))
+                       (gen-1-bind var vspecialp new-env context decls end))
                  ;; Bookkeeping
                  (if vspecialp
                      (incf special-binding-count)
@@ -1785,6 +1834,7 @@
           (compile-let* aux `((declare (special ,@specials))) body
                         new-env context))
       (emit-unbind context special-binding-count)
+      (emit-label context end)
       (warn-ignorance igninfos (context-source context)))))
 
 ;;; Given a lambda list, compute a suitable name for an otherwise
@@ -1991,6 +2041,23 @@
   (loop for pair in (m:tags info)
         for label = (cdr pair)
         do (setf (cdr pair) (annotation-module-position label))))
+
+(defgeneric link-var-info (info))
+
+(defmethod link-var-info ((info trucler:lexical-variable-description))
+  ;; FIXME: declarations
+  (make-instance 'm:var-info
+    :name (trucler:name info) :declarations ()
+    :index (frame-offset info)
+    :cellp (indirect-lexical-p info)))
+
+(defmethod link-var-info ((info trucler:local-function-description))
+  (make-instance 'm:var-info
+    :name `#',(trucler:name info) :declarations ()
+    :index (frame-offset info) :cellp nil))
+
+(defmethod link-map-info progn ((info m:vars-info))
+  (map-into (m:bindings info) #'link-var-info (m:bindings info)))
 
 (defmethod link-map-info progn ((info cfunction)))
 

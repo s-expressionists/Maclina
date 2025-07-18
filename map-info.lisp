@@ -55,6 +55,19 @@
    ;; Indicates what values are returned by the BLOCK or CATCH form.
    (%receiving :initarg :receiving :reader receiving)))
 
+;;; This one is also pretty useful for debugging, since it lets you reconstruct
+;;; the current lexical variable and function bindings at any IP.
+(defclass vars-info (program-structure-info)
+  (;; A list of var-infos.
+   ;; During compilation, temporarily a list of lexical variable infos.
+   (%bindings :initarg :bindings :reader bindings)))
+
+(defclass var-info ()
+  ((%name :initarg :name :reader name)
+   (%index :initarg :index :reader index :type (unsigned-byte 16))
+   (%cellp :initarg :cellp :reader cellp :type boolean)
+   (%declarations :initarg :declarations :reader declarations)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Allow bytecode functions to be infos.

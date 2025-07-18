@@ -32,6 +32,8 @@
            #:declarations-info #:the-info #:if-info
            #:tagbody-info #:block-info
            #:receiving #:declarations #:the-type #:tags #:name)
+  (:export #:vars-info #:bindings
+           #:var-info #:index #:cellp)
   (:export #:info-at #:most-specific-info-at #:source-at #:function-at))
 
 ;;;; Definition of the virtual machine, used by both the compiler and the VM.

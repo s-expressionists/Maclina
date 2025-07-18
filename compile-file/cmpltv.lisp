@@ -287,6 +287,20 @@
   ((%name :initarg :name :reader name)
    (%receiving :initarg :receiving :reader receiving)))
 
+(defclass debug-info-var ()
+  ((%name :initarg :name :reader name :type creator)
+   (%index :initarg :frame-index :reader frame-index :type (unsigned-byte 16))
+   (%cellp :initarg :cellp :reader cellp :type boolean)
+   (%dynamic-extent-p :initarg :dxp :reader dynamic-extent-p :type boolean)
+   (%ignore :initarg :ignore :reader di-ignore
+            :type (member nil cl:ignore cl:ignorable))
+   (%inline :initarg :inline :reader di-inline
+            :type (member nil cl:inline cl:notinline))
+   ;; other declarations (type, user defined)
+   (%declarations :initarg :declarations :reader declarations :type list)))
+(defclass debug-info-vars (debug-info)
+  ((%vars :initarg :vars :reader vars :type list)))
+
 ;;;
 
 ;;; If this is true, symbols are avoided when possible, and attributes
@@ -964,6 +978,28 @@
     :start (m:start info) :end (m:end info)
     :name (ensure-constant (m:name info))
     :receiving (m:receiving info)))
+
+(defmethod process-debug-info ((info m:vars-info))
+  (make-instance 'debug-info-vars
+    :start (m:start info) :end (m:end info)
+    :vars (loop for var in (m:bindings info)
+                for adecls = (m:declarations var)
+                for ignore = (loop for d in adecls
+                                   when (member d '(cl:ignore cl:ignorable))
+                                     return d)
+                for inline = (loop for d in adecls
+                                   when (member d '(cl:inline cl:notinline))
+                                     return d)
+                for decls = (set-difference adecls
+                                            '(cl:dynamic-extent cl:ignore
+                                              cl:ignorable cl:inline
+                                              cl:notinline))
+                collect (make-instance 'debug-info-var
+                          :name (ensure-constant (m:name var))
+                          :frame-index (m:index var) :cellp (m:cellp var)
+                          :dxp (not (not (member 'cl:dynamic-extent adecls)))
+                          :ignore ignore :inline inline
+                          :declarations (mapcar #'ensure-constant decls)))))
 
 (defun process-debug-infos (pc-map)
   ;; Doing source info will require a format for it, so we only dump some infos.
