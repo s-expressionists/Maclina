@@ -1008,22 +1008,23 @@
           collect (process-debug-info info)))
 
 (defun add-module (value)
-  ;; Add the module first to prevent recursion.
-  (let ((mod
-          (add-oob
-           value
-           (make-instance 'bytemodule-creator
-             :prototype value :lispcode (cmp:link value)))))
-    ;; Modules can indirectly refer to themselves recursively through
-    ;; cfunctions, so we need to 2stage it here.
-    (add-instruction
-     (make-instance 'setf-literals
-       :module mod :literals (map 'simple-vector #'ensure-module-literal
-                                  (cmp:cmodule-literals value))))
-    (add-instruction
-     (make-instance 'module-debug-attr
-       :module mod :infos (process-debug-infos (cmp:cmodule-pc-map value))))
-    mod))
+  (multiple-value-bind (bytecode pc-map) (cmp:link value)
+    ;; Add the module first to prevent recursion.
+    (let ((mod
+            (add-oob
+             value
+             (make-instance 'bytemodule-creator
+               :prototype value :lispcode bytecode))))
+      ;; Modules can indirectly refer to themselves recursively through
+      ;; cfunctions, so we need to 2stage it here.
+      (add-instruction
+       (make-instance 'setf-literals
+         :module mod :literals (map 'simple-vector #'ensure-module-literal
+                                    (cmp:cmodule-literals value))))
+      (add-instruction
+       (make-instance 'module-debug-attr
+         :module mod :infos (process-debug-infos pc-map)))
+      mod)))
 
 (defun ensure-module (module)
   (or (find-oob module) (add-module module)))

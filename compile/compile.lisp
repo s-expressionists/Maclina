@@ -14,6 +14,7 @@
                           :fill-pointer 0 :adjustable t))
   ;; An ordered vector of annotations emitted in this function.
   (annotations (make-array 0 :fill-pointer 0 :adjustable t))
+  (pc-map (make-array 0 :fill-pointer 0 :adjustable t))
   (%nlocals 0)
   (closed (make-array 0 :fill-pointer 0 :adjustable t) :read-only t)
   (entry-point (make-label))
@@ -59,9 +60,7 @@
   ;; For example, a cfunction appearing literally in the code (for whatever
   ;; odd reason) gets a constant-info, distinguishing it from a cfunction
   ;; in the vector which will be linked to an actual function.
-  (literals (make-array 0 :fill-pointer 0 :adjustable t) :read-only t)
-  ;; Each entry in this vector is a map-info.
-  (pc-map (make-array 0 :fill-pointer 0 :adjustable t) :read-only t))
+  (literals (make-array 0 :fill-pointer 0 :adjustable t) :read-only t))
 
 (defstruct (constant-info (:constructor make-constant-info (value)))
   (value (error "missing arg") :read-only t))
@@ -177,7 +176,7 @@
         (vector-push-extend info closed))))
 
 (defun push-map-info (info context)
-  (vector-push-extend info (cmodule-pc-map (context-module context))))
+  (vector-push-extend info (cfunction-pc-map (context-function context))))
 
 (defun new-context (parent &key (receiving (context-receiving parent))
                              (dynenv nil) ; prepended
@@ -2061,14 +2060,18 @@
 
 (defmethod link-map-info progn ((info cfunction)))
 
-(defun link-pc-map (pc-map) (map nil #'link-map-info pc-map))
+(defun create-module-pc-map (cmodule)
+  (let* ((maps (map 'list #'cfunction-pc-map (cmodule-cfunctions cmodule)))
+         (pc-map (apply #'concatenate 'simple-vector maps)))
+    (map nil #'link-map-info pc-map)
+    pc-map))
 
 ;;; Finish fixups for a module and return its final bytecode.
 (defun link (cmodule)
   (initialize-cfunction-positions cmodule)
   (resolve-fixup-sizes cmodule)
-  (link-pc-map (cmodule-pc-map cmodule))
-  (create-module-bytecode cmodule))
+  (values (create-module-bytecode cmodule)
+          (create-module-pc-map cmodule)))
 
 ;;; The compiler works with compilation environments, but for loading
 ;;; in constants and stuff it may need a run-time environment.
@@ -2112,47 +2115,46 @@
 
 (defun load-pc-map (pc-map)
   ;; Make a non-adjustable vector.
-  (map 'vector #'load-map-info pc-map))
+  (map 'simple-vector #'load-map-info pc-map))
 
 ;;; Run down the hierarchy and link the compile time representations
 ;;; of modules and functions together into runtime objects.
 (defun link-load (cmodule env)
-  (let* ((bytecode (link cmodule))
-         (cmodule-literals (cmodule-literals cmodule))
-         (pc-map (cmodule-pc-map cmodule))
-         (literal-length (length cmodule-literals))
-         (literals (make-array literal-length))
-         (bytecode-module
-           (m:make-bytecode-module
-            :bytecode bytecode
-            :literals literals))
-         (client m:*client*))
-    ;; Create the real function objects.
-    (loop for cfunction across (cmodule-cfunctions cmodule)
-          for fun = (m:make-bytecode-function
-                     m:*client*
-                     bytecode-module
-                     (cfunction-%nlocals cfunction)
-                     (length (cfunction-closed cfunction))
-                     (annotation-module-position
-                      (cfunction-entry-point cfunction))
-                     (cfunction-final-size cfunction))
-          do (setf (cfunction-info cfunction) fun)
-          when (cfunction-name cfunction)
-            do (setf (m:bytecode-function-name fun) (cfunction-name cfunction))
-          when (cfunction-doc cfunction)
-            do (setf (documentation fun t) (cfunction-doc cfunction))
-          when (cfunction-lambda-list-p cfunction)
-            do (setf (m:bytecode-function-lambda-list fun)
-                     (cfunction-lambda-list cfunction)))
-    ;; Now replace the cfunctions in the cmodule literal vector with
-    ;; real bytecode functions.
-    ;; Also replace the load-time-value infos with the evaluated forms.
-    (map-into literals
-              (lambda (info) (load-literal-info client info env))
-              cmodule-literals)
-    ;; Ditto for the PC map.
-    (setf (m:bytecode-module-pc-map bytecode-module) (load-pc-map pc-map)))
+  (multiple-value-bind (bytecode pc-map) (link cmodule)
+    (let* ((cmodule-literals (cmodule-literals cmodule))
+           (literal-length (length cmodule-literals))
+           (literals (make-array literal-length))
+           (bytecode-module
+             (m:make-bytecode-module
+              :bytecode bytecode
+              :literals literals))
+           (client m:*client*))
+      ;; Create the real function objects.
+      (loop for cfunction across (cmodule-cfunctions cmodule)
+            for fun = (m:make-bytecode-function
+                       m:*client*
+                       bytecode-module
+                       (cfunction-%nlocals cfunction)
+                       (length (cfunction-closed cfunction))
+                       (annotation-module-position
+                        (cfunction-entry-point cfunction))
+                       (cfunction-final-size cfunction))
+            do (setf (cfunction-info cfunction) fun)
+            when (cfunction-name cfunction)
+              do (setf (m:bytecode-function-name fun) (cfunction-name cfunction))
+            when (cfunction-doc cfunction)
+              do (setf (documentation fun t) (cfunction-doc cfunction))
+            when (cfunction-lambda-list-p cfunction)
+              do (setf (m:bytecode-function-lambda-list fun)
+                       (cfunction-lambda-list cfunction)))
+      ;; Now replace the cfunctions in the cmodule literal vector with
+      ;; real bytecode functions.
+      ;; Also replace the load-time-value infos with the evaluated forms.
+      (map-into literals
+                (lambda (info) (load-literal-info client info env))
+                cmodule-literals)
+      ;; Ditto for the PC map.
+      (setf (m:bytecode-module-pc-map bytecode-module) (load-pc-map pc-map))))
   (values))
 
 ;;; Given a cfunction, link constants and return an actual function.
