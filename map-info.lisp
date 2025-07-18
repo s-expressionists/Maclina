@@ -102,14 +102,14 @@
                   (funcall predicate info)
                   (or (null best) (< end (end best))))
           do (setf best info)
-        finally (cl:return info)))
+        finally (cl:return best)))
 
 (defun source-at (module pc)
   (let ((info (most-specific-info-at
                module pc (lambda (info) (typep info 'source-info)))))
     (if info
         (source info)
-        nil)))
+        ())))
 
 (defun first-info-at (module pc predicate)
   (loop for info across (bytecode-module-pc-map module)
