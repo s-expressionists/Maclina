@@ -659,9 +659,9 @@
                       ((#.m:fdefinition #.m:called-fdefinition)
                        (spush (car (constant (next-long)))) (incf ip))
                       (otherwise
-                       (error "Unknown long opcode #x~x" (code)))))
+                       (error 'm:unknown-long-opcode :opcode (code)))))
                    (otherwise
-                    (error "Unknown opcode #x~x" (code))))
+                    (error 'm:unknown-opcode :opcode (code))))
                  (go loop)))
          (go loop)))))
 

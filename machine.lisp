@@ -34,7 +34,9 @@
            #:receiving #:declarations #:the-type #:tags #:name)
   (:export #:vars-info #:bindings
            #:var-info #:index #:cellp)
-  (:export #:info-at #:most-specific-info-at #:source-at #:function-at))
+  (:export #:info-at #:most-specific-info-at #:source-at #:function-at)
+  ;; A few shared conditions
+  (:export #:unknown-opcode #:unknown-long-opcode))
 
 ;;;; Definition of the virtual machine, used by both the compiler and the VM.
 
@@ -154,3 +156,19 @@
     (cleanup 62)
     (encell 63 (1) (2))
     (long 255)))
+
+(define-condition unknown-opcode (error)
+  ((%opcode :initarg :opcode :reader opcode))
+  (:report (lambda (condition stream)
+             (format stream "Unknown VM opcode ~d (~:*#x~x)"
+                     (opcode condition)))))
+
+(define-condition unknown-long-opcode (error)
+  ((%opcode :initarg :opcode :reader opcode))
+  (:report (lambda (condition stream)
+             (let* ((opcode (opcode condition))
+                    (res (member opcode *full-codes* :key #'second)))
+               (if res
+                   (format stream "BUG: Unimplemented long VM instruction ~a (opcode #x~x)"
+                           (caar res) opcode)
+                   (format stream "Unknown long VM opcode ~d (~:*#x~x)"))))))

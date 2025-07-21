@@ -18,7 +18,7 @@
 ;;; Return the instruction description for OPCODE.
 (defun decode-instr (opcode)
   (let ((res (member opcode *full-codes* :key #'second)))
-    (if res (first res) (error "unknown bytecode opcode ~d" opcode))))
+    (if res (first res) (error 'unknown-opcode :opcode opcode))))
 
 ;;; Return a list of all IPs that are jumped to.
 (defun gather-labels (bytecode ip end)

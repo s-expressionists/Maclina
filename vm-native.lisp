@@ -479,9 +479,9 @@
                       ((#.m:fdefinition #.m:called-fdefinition)
                        (spush (fdefinition (constant (next-long)))) (incf ip))
                       (otherwise
-                       (error "Unknown long opcode #x~x" (code)))))
+                       (error 'm:unknown-long-opcode :opcode (code)))))
                    (otherwise
-                    (error "Unknown opcode #x~x" (code)))))))))
+                    (error 'm:unknown-opcode :opcode (code)))))))))
 
 (defmethod m:compute-instance-function ((client trucler-native:client)
                                         (closure m:bytecode-closure))
