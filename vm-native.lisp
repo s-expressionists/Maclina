@@ -442,6 +442,26 @@
                        (call-fixed (next-long) (next-long)) (incf ip))
                       (#.m:bind (bind (next-long) (next-long)) (incf ip))
                       (#.m:set (setf (local (next-long)) (spop)) (incf ip))
+                      (#.m:make-closure
+                       (spush (let ((template (constant (next-long))))
+                                (m:make-bytecode-closure
+                                 m:*client*
+                                 template
+                                 (coerce (gather
+                                          (m:bytecode-function-environment-size template))
+                                         'simple-vector)))))
+                      (#.m:make-uninitialized-closure          
+                       (spush (let ((template (constant (next-long))))
+                                (m:make-bytecode-closure
+                                 m:*client*
+                                 template
+                                 (make-array
+                                  (m:bytecode-function-environment-size template))))))
+                      (#.m:initialize-closure
+                       (let ((env (m:bytecode-closure-env (local (next-long)))))
+                         (declare (type simple-vector env))
+                         (loop for i from (1- (length env)) downto 0 do
+                           (setf (aref env i) (spop)))))
                       (#.m:bind-required-args
                        (vm:bind-required-args (next-long)
                                               stack bp (vm-args vm))
