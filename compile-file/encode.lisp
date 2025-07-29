@@ -162,7 +162,10 @@
 (defmacro write-sub-byte (array stream nbits)
   (let ((perbyte (floor 8 nbits))
         (a (gensym "ARRAY")) (s (gensym "STREAM")))
-    `(let* ((,a ,array) (,s ,stream) (total-size (array-total-size ,a)))
+    `(let* ((,a ,array) (,s ,stream)
+            (total-size (if (array-has-fill-pointer-p ,a)
+                            (length ,a)
+                            (array-total-size ,a))))
        (multiple-value-bind (full-bytes remainder) (floor total-size ,perbyte)
          (loop for byteindex below full-bytes
                for index = (* ,perbyte byteindex)
@@ -188,7 +191,9 @@
   ;; This is the case on anything sane, probably. Babel makes the same assumption
   ;; as far as I can tell.
   ;; TODO: There's probably cleverness to be done to make this write faster.
-  (loop for i below (array-total-size character-array)
+  (loop for i below (if (array-has-fill-pointer-p character-array)
+                        (length character-array)
+                        (array-total-size character-array))
 	for char = (row-major-aref character-array i)
 	for cpoint = (char-code char)
 	do (cond ((< cpoint #x80) ; one byte
@@ -228,7 +233,10 @@
     (write-dimensions dims stream)
     (macrolet ((dump (&rest forms)
                  `(loop with arr = (prototype inst)
-                        for i below (array-total-size arr)
+                        with len = (if (array-has-fill-pointer-p arr)
+                                       (length arr)
+                                       (array-total-size arr))
+                        for i below len
                         for elem = (row-major-aref arr i)
                         do ,@forms)))
       (cond ((equal packing-type :nil)) ; just need dims
