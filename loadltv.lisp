@@ -310,12 +310,13 @@ Did not initialize constants~{ #~d~}"
                           for arrindex = `(+ index ,j)
                           collect `(setf (row-major-aref array ,arrindex) ,bits)))
          ;; read remainder
-         (let* ((index (* ,perbyte full-bytes))
-                (byte (read-byte ,s)))
-           (loop for j below remainder
-                 for bit-index = (* ,nbits (- ,perbyte j 1))
-                 for bits = (ldb (byte ,nbits bit-index) byte)
-                 do (setf (row-major-aref ,a (+ index j)) bits)))))))
+         (unless (zerop remainder)
+           (let* ((index (* ,perbyte full-bytes))
+                  (byte (read-byte ,s)))
+             (loop for j below remainder
+                   for bit-index = (* ,nbits (- ,perbyte j 1))
+                   for bits = (ldb (byte ,nbits bit-index) byte)
+                   do (setf (row-major-aref ,a (+ index j)) bits))))))))
 
 (define-condition illegal-utf8 (invalid-fasl) ())
 
