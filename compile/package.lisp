@@ -28,10 +28,11 @@
   ;; Conditions and compilation unit handling
   (:export #:with-compilation-unit #:with-compilation-results)
   (:export #:compiler-condition #:source)
-  (:export #:unknown-reference #:unknown-variable #:unknown-function
+  (:export #:unknown-reference
+           #:unknown-variable #:unknown-function #:unknown-type
            #:name
            #:unknown-reference-resolution #:resolve-reference
-           #:resolve-function #:resolve-macro
+           #:resolve-function #:resolve-macro #:resolve-type
            #:assumed-function-now-macro)
   ;; Miscellaneous hooks
   (:export #:debug-lambda-name #:debug-lambda-list)

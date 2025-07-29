@@ -25,6 +25,21 @@
                      (name condition))))
   (:documentation "Condition signaled when the compiler encounters an unknown operator."))
 
+(define-condition unknown-type (unknown-reference
+                                compiler-program-style-warning)
+  ()
+  (:report (lambda (condition stream)
+             (format stream "Unknown type ~s" (name condition))))
+  ;; NOTE: We _could_ signal this condition if we processed type
+  ;; declarations at all, but we don't.
+  (:documentation "Condition signaled when the compiler encounters an unknown type.
+
+Note that Maclina itself never signals this condition. It is provided so that clients may signal it (in macros or compiler macros, for example) in such a way that it can be resolved within a compilation unit.
+
+The nature of types is undefined by Maclina, but it assumes that they can be compared by EQL for noting resolutions.
+
+See RESOLVE-TYPE"))
+
 (define-condition unknown-reference-resolution (condition)
   ((%name :initarg :name :reader name))
   (:documentation "Parent type for conditions that can be SIGNALed at compile time to indicate to an ongoing compilation unit that a previously unknown name is now known."))
@@ -56,3 +71,12 @@
   (when (equal (name r1) (name r2))
     (warn 'assumed-function-now-macro :name (name r1) :source (source r2))
     t))
+
+(define-condition resolve-type (unknown-reference-resolution) ()
+  (:documentation "Condition that can be SIGNALed to indicate to a compilation unit that a new type has been defined, and that previously unknown reference to a type by that name can now be resolved."))
+(defmethod resolve-reference ((r1 resolve-type) (r2 unknown-type))
+  ;; Arguably we should signal some kind of warning here anyway,
+  ;; since the compiler not knowing about a type probably means that
+  ;; it's useless for optimization.
+  ;; But a client can subclass resolve-type if they really want that.
+  (eql (name r1) (name r2)))
