@@ -679,13 +679,7 @@
    value
    (make-instance 'pathname-creator
      :prototype value
-     :host (ensure-constant
-            (let ((host (pathname-host value)))
-              (if (or (stringp host) (and (listp host) (every #'stringp host)))
-                  ;; Defined to be a valid host by standard
-                  host
-                  ;; Something else, like :unspecific or one of SBCL's host structures
-                  :unspecific)))
+     :host (ensure-constant (host-namestring value))
      :device (ensure-constant (pathname-device value))
      :directory (ensure-constant (pathname-directory value))
      :name (ensure-constant (pathname-name value))
