@@ -37,4 +37,5 @@
   ;; Miscellaneous hooks
   (:export #:debug-lambda-name #:debug-lambda-list)
   ;; PC map info related stuff
-  (:export #:*source-locations*))
+  (:export #:*source-locations* #:*default-source-location*
+           #:form-source-location #:default-source-location))

@@ -549,12 +549,17 @@
 ;;;
 
 (defvar *source-locations*)
+(defvar *default-source-location* nil)
 
-(defun expr-source-location (form &optional default)
+(defun expr-source-location (form &optional (default *default-source-location*))
   (if (boundp '*source-locations*)
       (multiple-value-bind (sl presentp) (gethash form *source-locations*)
         (if presentp sl default))
       default))
+
+;;; exported
+(defun form-source-location (form) (expr-source-location form))
+(defun default-source-location () *default-source-location*)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;

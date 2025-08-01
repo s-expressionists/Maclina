@@ -42,7 +42,14 @@
 		with *environment* = environment
 		with eclector.base:*client* = reader-client
                 with cmp:*source-locations* = (make-hash-table)
+                for source-begin = (eclector.base:source-position reader-client input)
 		for form = (eclector.parse-result:read reader-client input nil eof)
+                for source-end = (eclector.base:source-position reader-client input)
+                for source-range = (eclector.base:make-source-range reader-client source-begin source-end)
+                for cmp:*default-source-location*
+                  = (make-instance 'source-location
+                      :pathname *source-pathname*
+                      :position source-range)
 		until (eq form eof)
 		when *compile-print*
                   do (describe-form form)

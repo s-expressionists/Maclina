@@ -9,4 +9,6 @@
            #:compile-file-to-unit #:compile-stream-to-unit
            #:write-units #:write-units-to-file)
   (:export #:make-load-form #:find-package #:package-name)
+  (:export #:source-location #:source-location-pathname
+           #:source-location-position)
   (:export #:link-fasls))
