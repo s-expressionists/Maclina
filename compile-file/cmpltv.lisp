@@ -253,6 +253,14 @@
    (%function :initarg :function :reader ll-function :type creator)
    (%lambda-list :initarg :lambda-list :reader lambda-list :type creator)))
 
+(defclass spi-attr (attribute)
+  ((%name :initform (ensure-constant "source-pos-info"))
+   (%function :initarg :function :reader spi-attr-function :type creator)
+   (%pathname :initarg :pathname :reader spi-attr-pathname :type creator)
+   (%lineno :initarg :lineno :reader lineno :type (unsigned-byte 64))
+   (%column :initarg :column :reader column :type (unsigned-byte 64))
+   (%filepos :initarg :filepos :reader filepos :type (unsigned-byte 64))))
+
 ;;;
 
 (defclass module-debug-attr (attribute)
@@ -879,7 +887,15 @@
         (add-instruction (make-instance 'lambda-list-attr
                            :function inst
                            :lambda-list (ensure-constant
-                                         (cmp:cfunction-lambda-list value))))))
+                                         (cmp:cfunction-lambda-list value)))))
+      (when (cmp:cfunction-source value)
+        (multiple-value-bind (path lineno column pos)
+            (source-location-data m:*client* (cmp:cfunction-source value))
+          (add-instruction
+           (make-instance 'spi-attr
+             :function inst
+             :pathname (ensure-constant path)
+             :lineno lineno :column column :filepos pos)))))
     inst))
 
 (defclass bytemodule-creator (vcreator)

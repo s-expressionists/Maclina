@@ -497,6 +497,16 @@
   (write-index (ll-function attr) stream)
   (write-index (lambda-list attr) stream))
 
+(defmethod encode ((attr spi-attr) stream)
+  ;; Write the length.
+  (write-b32 (+ *index-bytes* *index-bytes* 8 8 8) stream)
+  ;; And the data.
+  (write-index (spi-attr-function attr) stream)
+  (write-index (spi-attr-pathname attr) stream)
+  (write-b64 (lineno attr) stream)
+  (write-b64 (column attr) stream)
+  (write-b64 (filepos attr) stream))
+
 ;;;
 
 (defgeneric info-length (debug-info))

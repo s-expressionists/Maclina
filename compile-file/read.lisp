@@ -70,6 +70,13 @@
       (format stream "~a position ~a" (source-location-pathname obj)
               (source-location-position obj))))
 
+(defgeneric source-location-data (client source))
+(defmethod source-location-data (client (source source-location))
+  (declare (ignore client))
+  (values (source-location-pathname source)
+          0 0 ; lineno, column
+          (car (source-location-position source))))
+
 ;;; we need a primary method here. But we just want to pass the compiler
 ;;; raw forms, so we don't actually make any results.
 (defmethod eclector.parse-result:make-expression-result

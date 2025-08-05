@@ -7,7 +7,7 @@
 
 (defstruct (cfunction (:constructor make-cfunction
                           (cmodule &key name doc
-                                     (lambda-list nil lambda-list-p))))
+                                     (lambda-list nil lambda-list-p) source)))
   (cmodule (error "missing arg") :read-only t)
   ;; Bytecode vector for this function.
   (bytecode (make-array 0 :element-type '(unsigned-byte 8)
@@ -41,7 +41,10 @@
   ;; e.g. if we note low DEBUG and high SPACE optimize declarations.
   (lambda-list-p nil :read-only t)
   ;; A docstring.
-  (doc nil :read-only t))
+  (doc nil :read-only t)
+  ;; A source location, of client defined nature, except that
+  ;; NIL always means none available.
+  (source nil :read-only t))
 
 ;;; Used in cmpltv.
 (defun cfunction-final-entry-point (cfunction)
@@ -578,7 +581,8 @@
 ;;; Compile into an existing module. Don't link.
 ;;; Useful for the file compiler, and for the first stage of runtime COMPILE.
 (defun compile-into (module lambda-expression env
-                     &rest keys &key block-name declarations source)
+                     &rest keys &key block-name declarations
+                                  (source (default-source-location)))
   (declare (ignore block-name declarations))
   (check-type lambda-expression lambda-expression)
   (let ((env (coerce-to-lexenv env))
@@ -767,10 +771,14 @@
 ;;; Given a lambda expression, compile it, and generate code to get the
 ;;; values it closes over. Return the cfunction.
 ;;; Used by both compile-lambda-expression and the unwind-protect compiler.
-(defun %compile-lambda-expression (lexpr env context &rest keys)
+(defun %compile-lambda-expression (lexpr env context &rest keys
+                                   &key (source (default-source-location))
+                                   &allow-other-keys)
   (destructure-syntax (lambda lambda-list . body) (lexpr)
-    (let* ((cfunction (apply #'compile-lambda lambda-list body
-                             env (context-module context) keys))
+    (let* ((source (expr-source-location lexpr source))
+           (cfunction (apply #'compile-lambda lambda-list body
+                             env (context-module context)
+                             :source source keys))
            (closed (cfunction-closed cfunction)))
       (loop for info across closed
             do (reference-lexical-variable info context))
@@ -828,7 +836,8 @@
     (check-declarations decls (context-source context))
     (compile-progn body (add-declarations env decls) context)))
 
-(defun fun-name-block-name (fun-name &optional source)
+(defun fun-name-block-name (fun-name
+                            &optional (source (default-source-location)))
   (typecase fun-name
     (symbol fun-name)
     ((cons (eql setf) (cons symbol null)) (second fun-name))
@@ -856,7 +865,8 @@
         (make-lexical-environment env :vars new-vars))))
 
 ;; Check syntactic validity of declarations. Limited at the moment.
-(defun check-declarations (declarations &optional source)
+(defun check-declarations (declarations
+                           &optional (source (default-source-location)))
   (unless (proper-list-p declarations)
     (error 'improper-declarations :declarations declarations :source source))
   (dolist (declaration declarations)
@@ -879,7 +889,8 @@
 (defun add-declarations (env declarations)
   (add-specials (extract-specials declarations) env))
 
-(defun canonicalize-binding (binding &optional source)
+(defun canonicalize-binding (binding
+                             &optional (source (default-source-location)))
   (if (consp binding)
       (destructure-syntax (binding name &optional value)
           (binding :rest nil :source source)
@@ -887,7 +898,8 @@
       (values binding nil)))
 
 ;;; Given a list of lexical infos, warn if any of them are unused.
-(defun warn-ignorance (infos &optional source)
+(defun warn-ignorance (infos
+                       &optional (source (default-source-location)))
   (dolist (info infos)
     (when (and (null (trucler:ignore info)) ; not IGNORE or IGNORABLE
                (not (lvar-readp info))) ; not used
@@ -1459,9 +1471,13 @@
     ;; The 0 is a dumb KLUDGE to let the cleanup forms be compiled in
     ;; non-values contexts, which might be more efficient.
     ;; (We use 0 instead of NIL because NIL may not be bound.)
-    (let ((cfunction
+    ;; FIXME: Trivialize on empty cleanup
+    (let* ((cleanup-source
+             (expr-source-location cleanup (context-source context)))
+           (cfunction
             (%compile-lambda-expression `(lambda () ,@cleanup 0)
-                                        env context :declarations ())))
+                                        env context :declarations ()
+                                        :source cleanup-source)))
       (assemble context m:protect
         (cfunction-literal-index cfunction context)))
     (compile-form protected env
@@ -1538,7 +1554,8 @@
 ;;; stripped by lexenv-for-macrolet (so that this can be done once
 ;;; for multiple definitions).
 ;;; Also used in cmpltv.
-(defun compute-macroexpander (name lambda-list body env &optional source)
+(defun compute-macroexpander (name lambda-list body env
+                              &optional (source (default-source-location)))
   ;; see comment in parse-macro for explanation
   ;; as to how we're using the host here
   (cl:compile nil (parse-macro name lambda-list body env
@@ -1622,7 +1639,8 @@
 (defmethod compile-special ((op (eql 'locally)) form env context)
   (compile-locally (rest form) env context))
 
-(defun check-eval-when-situations (situations &optional source)
+(defun check-eval-when-situations (situations
+                                   &optional (source (default-source-location)))
   (unless (proper-list-p situations)
     (error 'improper-situations
            :situations situations
@@ -1905,7 +1923,8 @@
                                 (if validp dll lambda-list)))
            (function
              (make-cfunction module
-                             :name name :lambda-list debug-lambda-list :doc doc))
+                             :name name :lambda-list debug-lambda-list
+                             :doc doc :source source))
            (context (make-context :receiving t :function function
                                   :source source))
            (env (make-lexical-environment env))

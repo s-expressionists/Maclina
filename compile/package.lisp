@@ -23,7 +23,7 @@
   (:export #:cfunction #:cfunction-cmodule #:cfunction-nlocals
            #:cfunction-closed #:cfunction-final-entry-point
            #:cfunction-final-size
-	   #:cfunction-name #:cfunction-doc
+	   #:cfunction-name #:cfunction-doc #:cfunction-source
            #:cfunction-lambda-list #:cfunction-lambda-list-p)
   ;; Conditions and compilation unit handling
   (:export #:with-compilation-unit #:with-compilation-results)
