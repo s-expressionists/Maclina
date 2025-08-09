@@ -72,7 +72,7 @@
       (format t "~&; Compiling file: ~a~%" (namestring input-file)))
     (m:progv m:*client* (cmp:run-time-environment m:*client* environment)
       '(*compile-file-pathname* *compile-file-truename*)
-      (list (truename *source-pathname*) *source-pathname*)
+      (list (pathname *source-pathname*) (truename input-file))
       (apply #'compile-stream-to-unit in keys))))
 
 ;; input is a character stream. output is a ub8 stream.
