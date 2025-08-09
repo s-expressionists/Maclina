@@ -89,9 +89,30 @@
 ;;; FIXME: I really doubt this is enough to be conforming.
 (defun compile-file-pathname (input-file &key (output-file nil ofp)
 			      &allow-other-keys)
-  (if ofp
-      output-file
-      (make-pathname :defaults input-file :type "faslbc")))
+  ;; CFP is defined as follows:
+  ;; 1) Defaults are taken from (merge-pathnames input-file) except that the type
+  ;;    is whatever our FASLs' types default to.
+  ;; 2) If input-file is logical and output-file is unsupplied,
+  ;;    the result is logical. (Handled by copying the host, below; it's not
+  ;;    possible for a logical pathname to have :unspecific or nil directory.)
+  ;; 3) Otherwise if input-file is logical it is translated.
+  ;; This implementation is cribbed from SBCL.
+  (let* ((input (pathname input-file))
+         (output (if ofp (pathname output-file)))
+         (host/dev/dir
+           (if (or (not output)
+                   (member (pathname-directory output) '(:unspecific nil)))
+               input
+               output)))
+    (merge-pathnames
+     (make-pathname :host (pathname-host host/dev/dir)
+                    :device (pathname-device host/dev/dir)
+                    :directory (pathname-directory host/dev/dir)
+                    :name (let ((name (if output (pathname-name output))))
+                            (if (and name (not (eq name :unspecific)))
+                                name
+                                (pathname-name input)))
+                    :type (or (if output (pathname-type output)) "faslbc")))))
 
 (defun compile-file (input-file
                      &rest keys
