@@ -28,7 +28,7 @@
                           (aref header 15)))
            (read-instructions (stream)
              (loop (setf instlen (read-sequence instructions stream :start instlen))
-                   (unless (listen stream) (return)) 
+                   (unless (listen stream) (return))
                    (let ((new-instructions
                            (make-array (* 2 (length instructions))
                                        :element-type '(unsigned-byte 8))))
@@ -56,5 +56,5 @@
       (write-magic o)
       (write-b16 major o) (write-b16 minor o)
       (write-b64 ninstructions o)
-      (write-sequence instructions o)))
+      (write-sequence instructions o :end instlen)))
   dest)
