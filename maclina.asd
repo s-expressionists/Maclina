@@ -23,7 +23,9 @@
                (:file "map-info" :depends-on ("structures" "machine"))
                (:file "link" :depends-on ("machine"))
                (:file "access" :depends-on ("machine"))
-               (:file "disassemble" :depends-on ("structures" "machine"))))
+               (:file "introspect" :depends-on ("machine"))
+               (:file "disassemble" :depends-on ("introspect" "structures"
+                                                              "machine"))))
 
 (asdf:defsystem #:maclina/compile
   :description "Reference implementation compiler for Maclina."

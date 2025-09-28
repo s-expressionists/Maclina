@@ -1,72 +1,14 @@
 (in-package #:maclina.machine)
 
-(defun dis-signed (x size)
-  (logior x (- (mask-field (byte 1 (1- size)) x))))
-
-(defun bc-unsigned (bytecode ip nbytes)
-  ;; Read NBYTES of little-endian integer.
-  (do* ((i 0 (1+ i))
-        (s 0 (+ 8 s))
-        (sum 0))
-       ((= i nbytes) sum)
-    (incf sum (ash (aref bytecode (+ ip i)) s))))
-
-(defun bc-signed (bytecode ip nbytes)
-  (dis-signed (bc-unsigned bytecode ip nbytes)
-              (* 8 nbytes)))
-
-;;; Return the instruction description for OPCODE.
-(defun decode-instr (opcode)
-  (let ((res (member opcode *full-codes* :key #'second)))
-    (if res (first res) (error 'unknown-opcode :opcode opcode))))
-
 ;;; Return a list of all IPs that are jumped to.
 (defun gather-labels (bytecode ip end)
-  (let ((result ())
-        (longp ())
-        op)
-    (loop (setq op (decode-instr (aref bytecode ip)))
-          ;; Go through the arguments, identifying any labels.
-          (let ((opip ip)) ; IP of the start of the instruction
-            (incf ip)
-            (dolist (argi (if longp (fourth op) (third op)))
-              (let ((nbytes (logandc2 argi +mask-arg+)))
-                (if (label-arg-p argi)
-                    (cl:push (+ opip (bc-signed bytecode ip nbytes)) result))
-                (incf ip nbytes))))
-          ;; If this is a LONG, set that for the next instruction.
-          ;; (KLUDGE)
-          ;; Otherwise reset longp to false.
-          (setq longp (cl:eq (first op) 'long))
-          (if (>= ip end) (cl:return (sort result #'<))))))
-
-(defun disassemble-instruction (bytecode ip &key (labels () labelsp))
-  (let ((desc (decode-instr (aref bytecode ip)))
-        (longp cl:nil) (opip ip))
-    (when (cl:eq (first desc) 'long)
-      (setf longp t desc (decode-instr (aref bytecode (incf opip)))))
-    (setf ip (1+ opip))
-    (loop for argi in (if longp (fourth desc) (third desc))
-          for nbytes = (logandc2 argi +mask-arg+)
-          collect (cond ((constant-arg-p argi)
-                         (list :constant
-                               (bc-unsigned bytecode ip nbytes)))
-                        ((label-arg-p argi)
-                         (let* ((lip (+ opip (bc-signed bytecode ip nbytes)))
-                                (lpos (position lip labels)))
-                           (cond (labelsp
-                                  (assert lpos)
-                                  (list :label lpos))
-                                 (t (list :label lip)))))
-                        ((keys-arg-p argi)
-                         (list :keys
-                               (bc-unsigned bytecode ip nbytes)))
-                        (t
-                         (list :operand
-                               (bc-unsigned bytecode ip nbytes))))
-            into args
-          do (incf ip nbytes)
-          finally (cl:return (values (list* (first desc) longp args) ip)))))
+  (let ((result ()))
+    (do-instructions (mnemonic ip longp args :start ip :end end) bytecode
+      (declare (ignore mnemonic ip longp))
+      (loop for (type n) in args
+            when (cl:eq type :label)
+              do (cl:push n result)))
+    (sort result #'<)))
 
 (defun %display-instruction (name longp args textify-operand)
   (if (string= name "PARSE-KEY-ARGS")
@@ -110,17 +52,23 @@
 
 (defun %disassemble-bytecode (bytecode start end)
   (let* ((labels (gather-labels bytecode start end))
-         (ip start))
-    (loop ;; If this is a label position, mark that.
-          for labelpos = (position ip labels)
-          when labelpos
-            collect (write-to-string labelpos)
-          ;; Decode.
-          collect (multiple-value-bind (inst new-ip)
-                      (disassemble-instruction bytecode ip :labels labels)
-                    (setf ip new-ip)
-                    inst)
-          until (>= ip end))))
+         (result ()))
+    (do-instructions (mnemonic ip longp args :start start :end end) bytecode
+      ;; collect a label if this is a destination.
+      (let ((labelpos (position ip labels)))
+        (when labelpos
+          (cl:push (write-to-string labelpos) result)))
+      ;; Record the instruction. Resolve labels to an ID.
+      (cl:push (list* mnemonic longp
+                      (loop for arg in args
+                            for (type n) = arg
+                            collect (if (cl:eq type :label)
+                                        (let ((lpos (position n labels)))
+                                          (assert lpos)
+                                          (list :label lpos))
+                                        arg)))
+            result))
+    (nreverse result)))
 
 (defun disassemble-bytecode (bytecode literals
                              &key (start 0) (end (length bytecode)))
