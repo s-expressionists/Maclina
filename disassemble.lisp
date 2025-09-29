@@ -5,7 +5,7 @@
   (let ((result ()))
     (do-instructions (mnemonic ip longp args :start ip :end end) bytecode
       (declare (ignore mnemonic ip longp))
-      (loop for (type n) in args
+      (loop for (type . n) in args
             when (cl:eq type :label)
               do (cl:push n result)))
     (sort result #'<)))
@@ -30,7 +30,7 @@
 
 (defun operand-textifier (literals)
   (flet ((textify-operand (thing &optional key-count)
-           (destructuring-bind (kind value) thing
+           (destructuring-bind (kind . value) thing
              (cond ((cl:eq kind :constant)
                     (format () "'~s" (aref literals value)))
                    ((cl:eq kind :label) (format () "L~a" value))
@@ -61,11 +61,11 @@
       ;; Record the instruction. Resolve labels to an ID.
       (cl:push (list* mnemonic longp
                       (loop for arg in args
-                            for (type n) = arg
+                            for (type . n) = arg
                             collect (if (cl:eq type :label)
                                         (let ((lpos (position n labels)))
                                           (assert lpos)
-                                          (list :label lpos))
+                                          (cons :label lpos))
                                         arg)))
             result))
     (nreverse result)))

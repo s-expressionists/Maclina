@@ -35,14 +35,14 @@
                             for unsigned = (bc-unsigned bytecode ip nbytes)
                             collect
                             (cond ((constant-arg-p argd)
-                                   (list :constant unsigned))
+                                   (cons :constant unsigned))
                                   ((label-arg-p argd)
-                                   (list :label
+                                   (cons :label
                                          (+ opip (dis-signed unsigned
                                                              (* 8 nbytes)))))
                                   ((keys-arg-p argd)
-                                   (list :keys unsigned))
-                                  (t (list :operand unsigned)))
+                                   (cons :keys unsigned))
+                                  (t (cons :operand unsigned)))
                             do (incf ip nbytes))))
                (setf longp ())
                (apply function (first desc) opip longp args))
