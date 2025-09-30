@@ -14,16 +14,15 @@
   (if (string= name "PARSE-KEY-ARGS")
       ;; We special case this despite the keys-arg thing because it's
       ;; just pretty weird all around.
-      (let* ((more-start (second (first args)))
-             (kci (second (second args)))
+      (let* ((more-start (cdr (first args)))
+             (kci (cdr (second args)))
              (aokp (logbitp 0 kci))
              (key-count (ash kci -1))
-             (keys (third args))
-             (framestart (second (fourth args))))
+             (keystart (third args)))
         ;; Print
-        (format t "~&  ~:[~;long ~]~(~a~)~:[~;-aok~] ~d ~d ~a ~d"
+        (format t "~&  ~:[~;long ~]~(~a~)~:[~;-aok~] ~d ~d ~a"
                 longp name aokp more-start key-count
-                (funcall textify-operand keys key-count) framestart))
+                (funcall textify-operand keystart key-count)))
       ;; Normal case
       (format t "~&  ~:[~;long ~]~(~a~)~{ ~a~}"
               longp name (mapcar textify-operand args))))
