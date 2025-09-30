@@ -20,32 +20,33 @@
   (let ((res (member opcode *full-codes* :key #'second)))
     (if res (first res) (error 'unknown-opcode :opcode opcode))))
 
+;;; Return two values: (mnemonic longp . args), and the ip of the next instruction.
+(defun disassemble-instruction (bytecode ip)
+  (let ((desc (decode-instr (aref bytecode ip)))
+        (longp ()) (opip ip))
+    (when (cl:eq (first desc) 'long)
+      (setf longp t desc (decode-instr (aref bytecode (incf opip)))))
+    (setf ip (1+ opip))
+    (loop with argdescs = (if longp (fourth desc) (third desc))
+          for argd in argdescs
+          for nbytes = (logandc2 argd +mask-arg+)
+          for unsigned = (bc-unsigned bytecode ip nbytes)
+          collect (cond ((constant-arg-p argd) (cons :constant unsigned))
+                        ((label-arg-p argd)
+                         (cons :label
+                               (+ opip (dis-signed unsigned (* 8 nbytes)))))
+                        ((keys-arg-p argd) (cons :keys unsigned))
+                        (t (cons :operand unsigned)))
+            into args
+          do (incf ip nbytes)
+          finally (cl:return (values (list* (first desc) longp args) ip)))))
+
 (defun map-instructions (function bytecode &key (start 0) (end (length bytecode)))
   (loop with ip = start
-        with longp = ()
-        for desc = (decode-instr (aref bytecode ip))
-        if (cl:eq (first desc) 'long)
-          do (setf longp t) (incf ip)
-        else
-          do (let* ((opip (prog1 ip (incf ip)))
-                    (argdescs (if longp (fourth desc) (third desc)))
-                    (args (loop
-                            for argd in argdescs
-                            for nbytes = (logandc2 argd +mask-arg+)
-                            for unsigned = (bc-unsigned bytecode ip nbytes)
-                            collect
-                            (cond ((constant-arg-p argd)
-                                   (cons :constant unsigned))
-                                  ((label-arg-p argd)
-                                   (cons :label
-                                         (+ opip (dis-signed unsigned
-                                                             (* 8 nbytes)))))
-                                  ((keys-arg-p argd)
-                                   (cons :keys unsigned))
-                                  (t (cons :operand unsigned)))
-                            do (incf ip nbytes))))
-               (setf longp ())
-               (apply function (first desc) opip longp args))
+        do (multiple-value-bind (inst new-ip)
+               (disassemble-instruction bytecode ip)
+             (apply function (first inst) ip (second inst) (cddr inst))
+             (setf ip new-ip))
         until (>= ip end)))
 
 (defmacro do-instructions ((mnemonic ip longp args
