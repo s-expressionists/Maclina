@@ -116,9 +116,9 @@
 (defun bytecode-call (template closure-env args)
   (declare (optimize speed)
            (type list args))
-  (let ((entry-pc (m:bytecode-function-entry-pc template))
-        (frame-size (m:bytecode-function-locals-frame-size template))
-        (module (m:bytecode-function-module template)))
+  (let ((entry-pc (m:entry-pc template))
+        (frame-size (m:locals-frame-size template))
+        (module (m:module template)))
     (declare (type (unsigned-byte 16) frame-size))
     ;; Set up the stack, then call VM.
     (let* ((vm *vm*)
@@ -266,8 +266,8 @@
   (declare (type (simple-array t (*)) closure)
            (type (unsigned-byte 16) frame-size)
            (optimize debug))
-  (let* ((bytecode (m:bytecode-module-bytecode module))
-         (constants (m:bytecode-module-literals module))
+  (let* ((bytecode (m:bytecode module))
+         (constants (m:literals module))
          (vm *vm*)
          (stack (vm-stack vm))
          (ip (vm-pc vm))
@@ -390,23 +390,19 @@
                     (incf ip))
                    ((#.m:make-closure)
                     (spush (let ((template (constant (next-code))))
-                             (m:make-bytecode-closure
+                             (m:make-closure
                               (vm-client vm)
                               template
                               (coerce (gather
-                                       (m:bytecode-function-environment-size template))
+                                       (m:environment-size template))
                                       'simple-vector))))
                     (incf ip))
                    ((#.m:make-uninitialized-closure)
                     (spush (let ((template (constant (next-code))))
-                             (m:make-bytecode-closure
-                              (vm-client vm)
-                              template
-                              (make-array
-                               (m:bytecode-function-environment-size template)))))
+                             (m:make-closure (vm-client vm) template)))
                     (incf ip))
                    ((#.m:initialize-closure)
-                    (let ((env (m:bytecode-closure-env (local (next-code)))))
+                    (let ((env (m:environment (local (next-code)))))
                       (declare (type simple-vector env))
                       (loop for i from (1- (length env)) downto 0 do
                         (setf (aref env i) (spop))))
@@ -586,10 +582,9 @@
                     (incf ip))
                    ((#.m:protect)
                     (let* ((template (constant (next-code)))
-                           (envsize
-                             (m:bytecode-function-environment-size template))
+                           (envsize (m:environment-size template))
                            (cleanup-thunk
-                             (m:make-bytecode-closure
+                             (m:make-closure
                               (vm-client vm) template
                               (coerce (gather envsize) 'simple-vector)))
                            (de (make-protection-dynenv cleanup-thunk)))
@@ -624,23 +619,19 @@
                       (#.m:set (setf (local (next-long)) (spop)) (incf ip))
                       (#.m:make-closure
                        (spush (let ((template (constant (next-long))))
-                                (m:make-bytecode-closure
+                                (m:make-closure
                                  (vm-client vm)
                                  template
                                  (coerce (gather
-                                          (m:bytecode-function-environment-size template))
+                                          (m:environment-size template))
                                          'simple-vector))))
                        (incf ip))
                       (#.m:make-uninitialized-closure
                        (spush (let ((template (constant (next-long))))
-                                (m:make-bytecode-closure
-                                 (vm-client vm)
-                                 template
-                                 (make-array
-                                  (m:bytecode-function-environment-size template)))))
+                                (m:make-closure (vm-client vm) template)))
                        (incf ip))
                       (#.m:initialize-closure
-                       (let ((env (m:bytecode-closure-env (local (next-long)))))
+                       (let ((env (m:environment (local (next-long)))))
                          (declare (type simple-vector env))
                          (loop for i from (1- (length env)) downto 0 do
                            (setf (aref env i) (spop))))
@@ -688,15 +679,13 @@
                  (go loop)))
          (go loop)))))
 
-(defmethod m:compute-instance-function ((client client)
-                                        (closure m:bytecode-closure))
-  (let ((template (m:bytecode-closure-template closure))
-        (env (m:bytecode-closure-env closure)))
+(defmethod m:compute-instance-function ((client client) (closure m:closure))
+  (let ((template (m:template closure))
+        (env (m:environment closure)))
     (lambda (&rest args)
       (bytecode-call template env args))))
 
-(defmethod m:compute-instance-function ((client client)
-                                        (fun m:bytecode-function))
+(defmethod m:compute-instance-function ((client client) (fun m:function))
   (lambda (&rest args)
     (bytecode-call fun #() args)))
 

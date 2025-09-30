@@ -2,45 +2,50 @@
 
 (defvar *client*)
 
-(defstruct bytecode-module
-  bytecode
-  literals
-  pc-map)
+(defclass module ()
+  ((%bytecode :initarg :bytecode :reader bytecode)
+   (%literals :initarg :literals :accessor literals)
+   (%pc-map :initarg :pc-map :accessor pc-map)))
 
-(defclass bytecode-function (closer-mop:funcallable-standard-object)
-  ((%module :initarg :module :accessor bytecode-function-module)
-   (%locals-frame-size :initarg :locals-frame-size :accessor bytecode-function-locals-frame-size)
-   (%environment-size :initarg :environment-size :accessor bytecode-function-environment-size)
-   (%entry-pc :initarg :entry-pc :accessor bytecode-function-entry-pc)
-   (%size :initarg :size :accessor bytecode-function-size)
+(defun make-module (&rest args &key bytecode literals pc-map)
+  (declare (ignore bytecode literals pc-map))
+  (apply #'make-instance 'module args))
+(define-compiler-macro make-module (&rest args)
+  `(make-instance 'module ,@args))
+
+(defclass function (closer-mop:funcallable-standard-object)
+  ((%module :initarg :module :accessor module)
+   (%locals-frame-size :initarg :locals-frame-size :accessor locals-frame-size)
+   (%environment-size :initarg :environment-size :accessor environment-size)
+   (%entry-pc :initarg :entry-pc :accessor entry-pc)
+   (%size :initarg :size :accessor size)
    ;; Debug stuff.
-   (%name :initform cl:nil :accessor bytecode-function-name)
+   (%name :initform cl:nil :accessor name)
+   ;; not exported - use cl:documentation
    (%documentation :accessor bytecode-function-documentation)
-   (%lambda-list :accessor bytecode-function-lambda-list))
+   (%lambda-list :accessor lambda-list))
   (:metaclass closer-mop:funcallable-standard-class))
 
-(defmethod print-object ((o bytecode-function) stream)
+(defmethod print-object ((o function) stream)
   ;; TODO? For unnamed functions put in something lambda list based.
   (print-unreadable-object (o stream :type t)
-    (write (bytecode-function-name o) :stream stream))
+    (write (name o) :stream stream))
   o)
 
 ;;; We need to specify doc-type to be more specific than the standard methods.
-(defmethod documentation ((fun bytecode-function) (doc-type (eql 'cl:function)))
+(defmethod documentation ((fun function) (doc-type (eql 'cl:function)))
   (bytecode-function-documentation fun))
-(defmethod documentation ((fun bytecode-function) (doc-type (eql 'cl:t)))
+(defmethod documentation ((fun function) (doc-type (eql 'cl:t)))
   (bytecode-function-documentation fun))
-(defmethod (setf documentation) (new (fun bytecode-function)
-                                 (doc-type (eql 'cl:function)))
+(defmethod (setf documentation) (new (fun function) (doc-type (eql 'cl:function)))
   (setf (bytecode-function-documentation fun) new))
-(defmethod (setf documentation) (new (fun bytecode-function)
-                                 (doc-type (eql 'cl:t)))
+(defmethod (setf documentation) (new (fun function) (doc-type (eql 'cl:t)))
   (setf (bytecode-function-documentation fun) new))
 
 (defgeneric compute-instance-function (client function))
 
-(defun make-bytecode-function (client module locals-frame-size environment-size entry-pc size)
-  (let ((fun (make-instance 'bytecode-function
+(defun make-function (client module locals-frame-size environment-size entry-pc size)
+  (let ((fun (make-instance 'function
                :module module
                :locals-frame-size locals-frame-size
                :environment-size environment-size
@@ -50,35 +55,32 @@
      fun (compute-instance-function client fun))
     fun))
 
-(defclass bytecode-closure (closer-mop:funcallable-standard-object)
-  ((%template :initarg :template :accessor bytecode-closure-template)
-   (%env :initarg :env :accessor bytecode-closure-env))
+(defclass closure (closer-mop:funcallable-standard-object)
+  ((%template :initarg :template :reader template)
+   (%environment :initarg :environment :reader environment))
   (:metaclass closer-mop:funcallable-standard-class))
 
-(defmethod bytecode-function-name ((fun bytecode-closure))
-  (bytecode-function-name (bytecode-closure-template fun)))
-(defmethod bytecode-function-lambda-list ((fun bytecode-closure))
-  (bytecode-function-lambda-list (bytecode-closure-template fun)))
+(defmethod name ((fun closure)) (name (template fun)))
+(defmethod lambda-list ((fun closure)) (lambda-list (template fun)))
 
-(defmethod print-object ((o bytecode-closure) stream)
+(defmethod print-object ((o closure) stream)
   (print-unreadable-object (o stream :type t)
-    (write (bytecode-function-name o) :stream stream))
+    (write (name o) :stream stream))
   o)
 
-(defmethod documentation ((fun bytecode-closure) (doc-type (eql 'cl:function)))
-  (documentation (bytecode-closure-template fun) doc-type))
-(defmethod documentation ((fun bytecode-closure) (doc-type (eql 'cl:t)))
-  (documentation (bytecode-closure-template fun) doc-type))
-(defmethod (setf documentation) (new (fun bytecode-closure)
-                                 (doc-type (eql 'cl:function)))
-  (setf (documentation (bytecode-closure-template fun) doc-type) new))
-(defmethod (setf documentation) (new (fun bytecode-closure)
-                                 (doc-type (eql 'cl:t)))
-  (setf (documentation (bytecode-closure-template fun) doc-type) new))
+(defmethod documentation ((fun closure) (doc-type (eql 'cl:function)))
+  (documentation (template fun) doc-type))
+(defmethod documentation ((fun closure) (doc-type (eql 'cl:t)))
+  (documentation (template fun) doc-type))
+(defmethod (setf documentation) (new (fun closure) (doc-type (eql 'cl:function)))
+  (setf (documentation (template fun) doc-type) new))
+(defmethod (setf documentation) (new (fun closure) (doc-type (eql 'cl:t)))
+  (setf (documentation (template fun) doc-type) new))
 
-(defun make-bytecode-closure (client template env)
+(defun make-closure (client template
+                     &optional (env (make-array (environment-size template))))
   (let ((clos
-          (make-instance 'bytecode-closure :template template :env env)))
+          (make-instance 'closure :template template :environment env)))
     (closer-mop:set-funcallable-instance-function
      clos (compute-instance-function client clos))
     clos))

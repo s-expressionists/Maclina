@@ -7,7 +7,7 @@
 ;;; They are used for debug information as well as information about the
 ;;; original structure of Lisp programs.
 ;;; Not everything in the info map is actually an info: it also includes
-;;; bytecode-functions. But they still have the START and END readers.
+;;; bytecode functions. But they still have the START and END readers.
 
 ;;; The compiler generates infos with a few convenient restrictions:
 ;;; 1) Info ranges are nested. That is, if one range intersects another,
@@ -73,10 +73,8 @@
 ;;; Allow bytecode functions to be infos.
 ;;;
 
-(defmethod start ((info bytecode-function))
-  (bytecode-function-entry-pc info))
-(defmethod end ((info bytecode-function))
-  (+ (bytecode-function-entry-pc info) (bytecode-function-size info)))
+(defmethod start ((info function)) (entry-pc info))
+(defmethod end ((info function)) (+ (entry-pc info) (size info)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -88,7 +86,7 @@
 ;;; Return a list of all infos for the given PC. Most specific infos first.
 (defun info-at (module pc)
   (loop with result = ()
-        for info across (m:bytecode-module-pc-map module)
+        for info across (m:pc-map module)
         until (< pc (m:start info))
         when (< pc (m:end info))
           do (push info result)
@@ -97,7 +95,7 @@
 ;;; Get the most specific info matching the predicate, for the given PC.
 (defun most-specific-info-at (module pc predicate)
   (loop with best = ()
-        for info across (m:bytecode-module-pc-map module)
+        for info across (m:pc-map module)
         for end = (m:end info)
         until (< pc (m:start info))
         when (and (< pc end)
@@ -114,10 +112,10 @@
         ())))
 
 (defun first-info-at (module pc predicate)
-  (loop for info across (m:bytecode-module-pc-map module)
+  (loop for info across (m:pc-map module)
         when (and (<= (m:start info) pc) (< pc (m:end info))
                   (funcall predicate info))
           return info))
 
 (defun function-at (module pc)
-  (first-info-at module pc (lambda (info) (typep info 'm:bytecode-function))))
+  (first-info-at module pc (lambda (info) (typep info 'm:function))))

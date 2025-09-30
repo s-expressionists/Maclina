@@ -88,19 +88,16 @@
 
 (defgeneric disassemble (object))
 
-(defmethod disassemble ((object m:bytecode-module))
-  (disassemble-bytecode (m:bytecode-module-bytecode object)
-                        (m:bytecode-module-literals object)))
+(defmethod disassemble ((object m:module))
+  (disassemble-bytecode (m:bytecode object) (m:literals object)))
 
-;; TODO: Record function boundaries, so that among other things we can
-;; disassemble only the region for the function being disassembled.
-(defmethod disassemble ((object m:bytecode-function))
-  (let ((module (m:bytecode-function-module object))
-        (entry-pc (m:bytecode-function-entry-pc object)))
-    (disassemble-bytecode (m:bytecode-module-bytecode module)
-                          (m:bytecode-module-literals module)
+(defmethod disassemble ((object m:function))
+  (let ((module (m:module object))
+        (entry-pc (m:entry-pc object)))
+    (disassemble-bytecode (m:bytecode module)
+                          (m:literals module)
                           :start entry-pc
-                          :end (+ entry-pc (m:bytecode-function-size object)))))
+                          :end (+ entry-pc (m:size object)))))
 
-(defmethod disassemble ((object m:bytecode-closure))
-  (disassemble (m:bytecode-closure-template object)))
+(defmethod disassemble ((object m:closure))
+  (disassemble (m:template object)))

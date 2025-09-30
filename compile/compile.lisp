@@ -2139,13 +2139,13 @@
            (literal-length (length cmodule-literals))
            (literals (make-array literal-length))
            (bytecode-module
-             (m:make-bytecode-module
+             (m:make-module
               :bytecode bytecode
               :literals literals))
            (client m:*client*))
       ;; Create the real function objects.
       (loop for cfunction across (cmodule-cfunctions cmodule)
-            for fun = (m:make-bytecode-function
+            for fun = (m:make-function
                        m:*client*
                        bytecode-module
                        (cfunction-%nlocals cfunction)
@@ -2155,12 +2155,11 @@
                        (cfunction-final-size cfunction))
             do (setf (cfunction-info cfunction) fun)
             when (cfunction-name cfunction)
-              do (setf (m:bytecode-function-name fun) (cfunction-name cfunction))
+              do (setf (m:name fun) (cfunction-name cfunction))
             when (cfunction-doc cfunction)
               do (setf (documentation fun t) (cfunction-doc cfunction))
             when (cfunction-lambda-list-p cfunction)
-              do (setf (m:bytecode-function-lambda-list fun)
-                       (cfunction-lambda-list cfunction)))
+              do (setf (m:lambda-list fun) (cfunction-lambda-list cfunction)))
       ;; Now replace the cfunctions in the cmodule literal vector with
       ;; real bytecode functions.
       ;; Also replace the load-time-value infos with the evaluated forms.
@@ -2168,7 +2167,7 @@
                 (lambda (info) (load-literal-info client info env))
                 cmodule-literals)
       ;; Ditto for the PC map.
-      (setf (m:bytecode-module-pc-map bytecode-module) (load-pc-map pc-map))))
+      (setf (m:pc-map bytecode-module) (load-pc-map pc-map))))
   (values))
 
 ;;; Given a cfunction, link constants and return an actual function.

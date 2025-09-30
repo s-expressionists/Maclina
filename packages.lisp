@@ -5,18 +5,14 @@
   (:shadow #:boundp #:makunbound #:fboundp #:fmakunbound)
   (:shadow #:lambda-parameters-limit #:call-arguments-limit
            #:lambda-list-keywords #:multiple-values-limit)
+  (:shadow #:function)
   ;; Additional opname exports are done in machine.lisp.
   (:export #:*client*)
-  (:export #:bytecode-module #:make-bytecode-module
-           #:bytecode-module-bytecode #:bytecode-module-literals)
-  (:export #:bytecode-function #:make-bytecode-function
-           #:bytecode-function-module #:bytecode-function-entry-pc
-           #:bytecode-function-size
-           #:bytecode-function-environment-size
-           #:bytecode-function-locals-frame-size
-           #:bytecode-function-name #:bytecode-function-lambda-list)
-  (:export #:bytecode-closure #:make-bytecode-closure
-           #:bytecode-closure-template #:bytecode-closure-env)
+  (:export #:module #:make-module #:bytecode #:literals #:pc-map)
+  (:export #:function #:make-function
+           #:entry-pc #:size #:environment-size #:locals-frame-size
+           #:name #:lambda-list)
+  (:export #:closure #:make-closure #:template #:environment)
   (:export #:compute-instance-function)
   (:export #:link-function #:link-variable #:link-environment)
   (:export #:boundp #:makunbound #:symbol-value #:call-with-progv #:progv
@@ -24,8 +20,7 @@
   (:export #:lambda-parameters-limit #:call-arguments-limit
            #:lambda-list-keywords #:multiple-values-limit)
   ;; PC map stuff
-  (:export #:bytecode-module-pc-map
-           #:map-info #:start #:end
+  (:export #:map-info #:start #:end
            #:source-info #:source)
   (:export #:program-structure-info
            #:declarations-info #:the-info #:if-info

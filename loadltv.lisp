@@ -638,14 +638,14 @@ Did not initialize constants~{ #~d~}"
                 entry-point nlocals nclosed)
       (dbgprint "  module-index = ~d" modulei)
       (setf (next-constant)
-            (m:make-bytecode-function
+            (m:make-function
              m:*client* module nlocals nclosed entry-point size)))))
 
 (defmethod %load-instruction ((mnemonic (eql 'make-bytecode-module)) stream)
   (let* ((len (read-ub32 stream))
          (bytecode (make-array len :element-type '(unsigned-byte 8)))
          ;; literals set by setf-literals
-         (module (m:make-bytecode-module :bytecode bytecode)))
+         (module (m:make-module :bytecode bytecode)))
     (dbgprint " (make-bytecode-module ~d)" len)
     (read-sequence bytecode stream)
     (dbgprint "  bytecode:~{ ~2,'0x~}" (coerce bytecode 'list))
@@ -658,7 +658,7 @@ Did not initialize constants~{ #~d~}"
     (loop for i below nlits
           do (setf (aref lits i) (constant (read-index stream))))
     (dbgprint " (setf-literals ~s ~s)" mod lits)
-    (setf (m:bytecode-module-literals mod) lits)))
+    (setf (m:literals mod) lits)))
 
 (defmethod %load-instruction ((mnemonic (eql 'fdefinition)) stream)
   (let ((namei (read-index stream)))
@@ -757,10 +757,10 @@ Did not initialize constants~{ #~d~}"
   (when (check-attribute-size mnemonic stream (* 2 *index-bytes*))
     (let ((fun (constant (read-index stream)))
           (name (constant (read-index stream))))
-      ;; constant closure would be weird, but we may as well support it.
-      ;; anything else we silently ignore.
-      (when (typep fun '(or m:bytecode-function m:bytecode-closure))
-        (setf (m:bytecode-function-name fun) name)))))
+      ;; Constant closure would be weird, and we can't set the name of a closure
+      ;; independently from its template, anyway.
+      (when (typep fun 'm:function)
+        (setf (m:name fun) name)))))
 
 (defmethod %load-attribute ((mnemonic (eql 'docstring)) stream)
   (when (check-attribute-size mnemonic stream (* 2 *index-bytes*))
@@ -778,10 +778,8 @@ Did not initialize constants~{ #~d~}"
   (when (check-attribute-size mnemonic stream (* 2 *index-bytes*))
     (let ((fun (constant (read-index stream)))
           (lambda-list (constant (read-index stream))))
-      ;; constant closure would be weird, but we may as well support it.
-      ;; anything else we silently ignore.
-      (when (typep fun '(or m:bytecode-function m:bytecode-closure))
-        (setf (m:bytecode-function-lambda-list fun) lambda-list)))))
+      (when (typep fun 'm:function)
+        (setf (m:lambda-list fun) lambda-list)))))
 
 (defun load-attribute (stream)
   (let ((aname (constant (read-index stream))))
