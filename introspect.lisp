@@ -150,7 +150,7 @@
                                             bytecode literals annotations
                                             &key (start 0) (end (length bytecode))
                                               context)
-  (map-annotated-instructions-literals
+  (map-annotated-instructions
    (literalizer f-instruction literals)
-   f-start f-end bytecode literals annotations
+   f-start f-end bytecode annotations
    :start start :end end :context context))
