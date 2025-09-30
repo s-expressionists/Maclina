@@ -83,39 +83,41 @@
 ;;; Convenience accessors
 ;;;
 
+(in-package #:maclina.introspect)
+
 ;;; Return a list of all infos for the given PC. Most specific infos first.
 (defun info-at (module pc)
   (loop with result = ()
-        for info across (bytecode-module-pc-map module)
-        until (< pc (start info))
-        when (< pc (end info))
-          do (cl:push info result)
-        finally (cl:return result)))
+        for info across (m:bytecode-module-pc-map module)
+        until (< pc (m:start info))
+        when (< pc (m:end info))
+          do (push info result)
+        finally (return result)))
 
 ;;; Get the most specific info matching the predicate, for the given PC.
 (defun most-specific-info-at (module pc predicate)
   (loop with best = ()
-        for info across (bytecode-module-pc-map module)
-        for end = (end info)
-        until (< pc (start info))
+        for info across (m:bytecode-module-pc-map module)
+        for end = (m:end info)
+        until (< pc (m:start info))
         when (and (< pc end)
                   (funcall predicate info)
-                  (or (null best) (< end (end best))))
+                  (or (null best) (< end (m:end best))))
           do (setf best info)
-        finally (cl:return best)))
+        finally (return best)))
 
 (defun source-at (module pc)
   (let ((info (most-specific-info-at
-               module pc (lambda (info) (typep info 'source-info)))))
+               module pc (lambda (info) (typep info 'm:source-info)))))
     (if info
-        (source info)
+        (m:source info)
         ())))
 
 (defun first-info-at (module pc predicate)
-  (loop for info across (bytecode-module-pc-map module)
-        when (and (<= (start info) pc) (< pc (end info))
+  (loop for info across (m:bytecode-module-pc-map module)
+        when (and (<= (m:start info) pc) (< pc (m:end info))
                   (funcall predicate info))
           return info))
 
 (defun function-at (module pc)
-  (first-info-at module pc (lambda (info) (typep info 'bytecode-function))))
+  (first-info-at module pc (lambda (info) (typep info 'm:bytecode-function))))

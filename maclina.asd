@@ -17,15 +17,16 @@
   :maintainer "Bike <aeshtaer@gmail.com>"
   :version "0.8.0"
   :depends-on (:closer-mop)
-  :components ((:file "machine")
+  :components ((:file "packages")
+               (:file "machine" :depends-on ("packages"))
                (:file "arg-conditions")
-               (:file "structures" :depends-on ("machine"))
-               (:file "map-info" :depends-on ("structures" "machine"))
-               (:file "link" :depends-on ("machine"))
-               (:file "access" :depends-on ("machine"))
-               (:file "introspect" :depends-on ("machine"))
+               (:file "structures" :depends-on ("packages"))
+               (:file "map-info" :depends-on ("structures" "packages"))
+               (:file "link" :depends-on ("packages"))
+               (:file "access" :depends-on ("packages"))
+               (:file "introspect" :depends-on ("machine" "packages"))
                (:file "disassemble" :depends-on ("introspect" "structures"
-                                                              "machine"))))
+                                                              "packages"))))
 
 (asdf:defsystem #:maclina/compile
   :description "Reference implementation compiler for Maclina."

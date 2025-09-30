@@ -255,7 +255,7 @@
 (defun instruction-trace (bytecode literals stack ip bp sp frame-size)
   (fresh-line *trace-output*)
   (let ((*standard-output* *trace-output*))
-    (maclina.machine:display-instruction bytecode literals ip))
+    (maclina.introspect:display-instruction bytecode literals ip))
   (let ((frame-end (+ bp frame-size)))
     (format *trace-output* " ; bp ~d sp ~d locals ~s stack ~s~%"
             bp sp (subseq stack bp frame-end)

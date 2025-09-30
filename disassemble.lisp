@@ -1,4 +1,4 @@
-(in-package #:maclina.machine)
+(in-package #:maclina.introspect)
 
 ;;; Return a list of all IPs that are jumped to.
 (defun gather-labels (bytecode ip end)
@@ -6,8 +6,8 @@
     (do-instructions (mnemonic ip longp args :start ip :end end) bytecode
       (declare (ignore mnemonic ip longp))
       (loop for (type . n) in args
-            when (cl:eq type :label)
-              do (cl:push n result)))
+            when (eq type :label)
+              do (push n result)))
     (sort result #'<)))
 
 (defun %display-instruction (name longp args textify-operand)
@@ -30,15 +30,15 @@
 (defun operand-textifier (literals)
   (flet ((textify-operand (thing &optional key-count)
            (destructuring-bind (kind . value) thing
-             (cond ((cl:eq kind :constant)
+             (cond ((eq kind :constant)
                     (format () "'~s" (aref literals value)))
-                   ((cl:eq kind :label) (format () "L~a" value))
-                   ((cl:eq kind :operand) (format () "~d" value))
-                   ((cl:eq kind :keys)
-                    (let ((keys cl:nil) (keystart value))
+                   ((eq kind :label) (format () "L~a" value))
+                   ((eq kind :operand) (format () "~d" value))
+                   ((eq kind :keys)
+                    (let ((keys ()) (keystart value))
                       (do ((i 0 (1+ i)))
                           ((= i key-count) (setq keys (nreverse keys)))
-                        (cl:push (aref literals (+ keystart i)) keys))
+                        (push (aref literals (+ keystart i)) keys))
                       (format () "'~s" keys)))
                    (t (error "Illegal kind ~a" kind))))))
     #'textify-operand))
@@ -56,16 +56,16 @@
       ;; collect a label if this is a destination.
       (let ((labelpos (position ip labels)))
         (when labelpos
-          (cl:push (write-to-string labelpos) result)))
+          (push (write-to-string labelpos) result)))
       ;; Record the instruction. Resolve labels to an ID.
-      (cl:push (list* mnemonic longp
-                      (loop for arg in args
-                            for (type . n) = arg
-                            collect (if (cl:eq type :label)
-                                        (let ((lpos (position n labels)))
-                                          (assert lpos)
-                                          (cons :label lpos))
-                                        arg)))
+      (push (list* mnemonic longp
+                   (loop for arg in args
+                         for (type . n) = arg
+                         collect (if (eq type :label)
+                                     (let ((lpos (position n labels)))
+                                       (assert lpos)
+                                       (cons :label lpos))
+                                     arg)))
             result))
     (nreverse result)))
 
@@ -88,19 +88,19 @@
 
 (defgeneric disassemble (object))
 
-(defmethod disassemble ((object bytecode-module))
-  (disassemble-bytecode (bytecode-module-bytecode object)
-                        (bytecode-module-literals object)))
+(defmethod disassemble ((object m:bytecode-module))
+  (disassemble-bytecode (m:bytecode-module-bytecode object)
+                        (m:bytecode-module-literals object)))
 
 ;; TODO: Record function boundaries, so that among other things we can
 ;; disassemble only the region for the function being disassembled.
-(defmethod disassemble ((object bytecode-function))
-  (let ((module (bytecode-function-module object))
-        (entry-pc (bytecode-function-entry-pc object)))
-    (disassemble-bytecode (bytecode-module-bytecode module)
-                          (bytecode-module-literals module)
+(defmethod disassemble ((object m:bytecode-function))
+  (let ((module (m:bytecode-function-module object))
+        (entry-pc (m:bytecode-function-entry-pc object)))
+    (disassemble-bytecode (m:bytecode-module-bytecode module)
+                          (m:bytecode-module-literals module)
                           :start entry-pc
-                          :end (+ entry-pc (bytecode-function-size object)))))
+                          :end (+ entry-pc (m:bytecode-function-size object)))))
 
-(defmethod disassemble ((object bytecode-closure))
-  (disassemble (bytecode-closure-template object)))
+(defmethod disassemble ((object m:bytecode-closure))
+  (disassemble (m:bytecode-closure-template object)))

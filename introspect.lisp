@@ -1,4 +1,4 @@
-(in-package #:maclina.machine)
+(in-package #:maclina.introspect)
 
 ;;;; This file defines two ways to run through bytecode.
 ;;;; The first way is unstructured. It just presents all the instructions in order,
@@ -28,13 +28,13 @@
 ;;; Return the instruction description for OPCODE.
 (defun decode-instr (opcode)
   (let ((res (member opcode *full-codes* :key #'second)))
-    (if res (first res) (error 'unknown-opcode :opcode opcode))))
+    (if res (first res) (error 'm:unknown-opcode :opcode opcode))))
 
 ;;; Return two values: (mnemonic longp . args), and the ip of the next instruction.
 (defun disassemble-instruction (bytecode ip)
   (let ((desc (decode-instr (aref bytecode ip)))
         (longp ()) (opip ip))
-    (when (cl:eq (first desc) 'long)
+    (when (cl:eq (first desc) 'm:long)
       (setf longp t desc (decode-instr (aref bytecode (incf opip)))))
     (setf ip (1+ opip))
     (loop with argdescs = (if longp (fourth desc) (third desc))
@@ -78,15 +78,15 @@
   ;; That's why we reverse order of the starts.
   ;; If two annotations start and end at the same point there may be a
   ;; problem. I don't think this can actually arise.
-  (let ((end1 (end annot1)) (end2 (end annot2)))
+  (let ((end1 (m:end annot1)) (end2 (m:end annot2)))
     (cond ((< end1 end2) t)
-          ((= end1 end2) (> (start annot1) (end annot2)))
+          ((= end1 end2) (> (m:start annot1) (m:end annot2)))
           (t nil))))
 
 (defun end-annotations (ip annotations f-end context)
   (loop with result = annotations
         for a in annotations
-        while (<= (end a) ip)
+        while (<= (m:end a) ip)
         do (funcall f-end a context)
            (setf result (cdr result))
         finally (cl:return result)))
@@ -98,8 +98,8 @@
 
 (defun initial-annotations (annotations start)
   (loop for annot across annotations
-        while (<= (start annot) start)
-        when (= (start annot) start)
+        while (<= (m:start annot) start)
+        when (= (m:start annot) start)
           collect annot))
 
 (defun map-annotated-instructions (f-instruction f-start f-end
@@ -115,8 +115,8 @@
       ;; Start annotations that are coming into effect.
       (let ((new-annotations
               (loop while (< next-annotation-index nannotations)
-                    while (<= (start (aref annotations next-annotation-index)) ip)
-                    when (= (start (aref annotations next-annotation-index)) ip)
+                    while (<= (m:start (aref annotations next-annotation-index)) ip)
+                    when (= (m:start (aref annotations next-annotation-index)) ip)
                       collect (aref annotations next-annotation-index)
                     do (incf next-annotation-index))))
         (setf active-annotations

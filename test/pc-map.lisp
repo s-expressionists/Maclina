@@ -24,7 +24,7 @@
       (loop with state = :before
             with success = t
             for pc below (length (maclina.machine:bytecode-module-bytecode mod))
-            for source = (maclina.machine:source-at mod pc)
+            for source = (maclina.introspect:source-at mod pc)
             do (case source
                  ((nil)
                   (case state
@@ -61,4 +61,4 @@
   (let* ((fun (ccompile nil '(lambda (x) x)))
          (mod (maclina.machine:bytecode-function-module fun))
          (entry (maclina.machine:bytecode-function-entry-pc fun)))
-    (5am:is (eql fun (maclina.machine:function-at mod entry)))))
+    (5am:is (eql fun (maclina.introspect:function-at mod entry)))))

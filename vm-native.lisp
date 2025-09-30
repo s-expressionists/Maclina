@@ -77,7 +77,7 @@
   (declare (ignorable stack bp sp frame-size))
   (fresh-line *trace-output*)
   (let ((*standard-output* *trace-output*))
-    (maclina.machine:display-instruction bytecode literals ip))
+    (maclina.introspect:display-instruction bytecode literals ip))
   ;;#+(or)
   (let ((frame-end (+ bp frame-size)))
     (format *trace-output* " ; bp ~d sp ~d locals ~s stack ~s~%"

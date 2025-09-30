@@ -1,46 +1,6 @@
-(defpackage #:maclina.machine
-  (:use #:cl)
-  (:shadow #:return #:throw #:symbol-value #:progv #:fdefinition #:nil #:eq
-           #:set #:push #:pop)
-  (:shadow #:disassemble)
-  (:shadow #:boundp #:makunbound #:fboundp #:fmakunbound)
-  (:shadow #:lambda-parameters-limit #:call-arguments-limit
-           #:lambda-list-keywords #:multiple-values-limit)
-  ;; Additional opname exports are done below.
-  (:export #:*client*)
-  (:export #:bytecode-module #:make-bytecode-module
-           #:bytecode-module-bytecode #:bytecode-module-literals)
-  (:export #:bytecode-function #:make-bytecode-function
-           #:bytecode-function-module #:bytecode-function-entry-pc
-           #:bytecode-function-environment-size
-           #:bytecode-function-locals-frame-size
-           #:bytecode-function-name #:bytecode-function-lambda-list)
-  (:export #:bytecode-closure #:make-bytecode-closure
-           #:bytecode-closure-template #:bytecode-closure-env)
-  (:export #:compute-instance-function)
-  (:export #:link-function #:link-variable #:link-environment)
-  (:export #:boundp #:makunbound #:symbol-value #:call-with-progv #:progv
-	   #:fdefinition #:fmakunbound #:fboundp)
-  (:export #:lambda-parameters-limit #:call-arguments-limit
-           #:lambda-list-keywords #:multiple-values-limit)
-  (:export #:disassemble #:display-instruction)
-  ;; PC map stuff
-  (:export #:bytecode-module-pc-map
-           #:map-info #:start #:end
-           #:source-info #:source)
-  (:export #:program-structure-info
-           #:declarations-info #:the-info #:if-info
-           #:tagbody-info #:block-info
-           #:receiving #:declarations #:the-type #:tags #:name)
-  (:export #:vars-info #:bindings
-           #:var-info #:index #:cellp)
-  (:export #:info-at #:most-specific-info-at #:source-at #:function-at)
-  ;; A few shared conditions
-  (:export #:unknown-opcode #:unknown-long-opcode))
-
 ;;;; Definition of the virtual machine, used by both the compiler and the VM.
 
-(in-package #:maclina.machine)
+(in-package #:maclina.introspect)
 
 (defconstant +mask-arg+     #b011000)
 (defconstant +constant-arg+ #b001000)
@@ -79,16 +39,18 @@
                (dolist (op ops)
                  (destructuring-bind (name code &optional argument-codes long-argument-codes)
                      op
-                   (let ((arguments (mapcar #'eval argument-codes))
+                   (let ((name (intern (symbol-name name) "MACLINA.MACHINE"))
+                         (arguments (mapcar #'eval argument-codes))
                          (long-arguments (mapcar #'eval long-argument-codes)))
-                     (cl:push (list name code arguments long-arguments)
-                              rev-fullcodes))
-                   (cl:push name rev-codes)
-                   (cl:push `(defconstant ,name ,code) rev-defconstants)))
+                     (push (list name code arguments long-arguments)
+                           rev-fullcodes)
+                     (push name rev-codes)
+                     (push `(defconstant ,name ,code) rev-defconstants))))
                `(progn
                   (defparameter *full-codes* ',(reverse rev-fullcodes))
                   (defparameter *codes* ',(reverse rev-codes))
-                  (export '(,@rev-codes))
+                  (eval-when (:compile-toplevel :load-toplevel :execute)
+                    (export '(,@rev-codes) "MACLINA.MACHINE"))
                   ,@rev-defconstants))))
   (defops
     (ref 0 (1) (2))
@@ -157,13 +119,13 @@
     (encell 63 (1) (2))
     (long 255)))
 
-(define-condition unknown-opcode (error)
+(define-condition m:unknown-opcode (error)
   ((%opcode :initarg :opcode :reader opcode))
   (:report (lambda (condition stream)
              (format stream "Unknown VM opcode ~d (~:*#x~x)"
                      (opcode condition)))))
 
-(define-condition unknown-long-opcode (error)
+(define-condition m:unknown-long-opcode (error)
   ((%opcode :initarg :opcode :reader opcode))
   (:report (lambda (condition stream)
              (let* ((opcode (opcode condition))
