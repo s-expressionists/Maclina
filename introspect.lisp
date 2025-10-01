@@ -102,12 +102,20 @@
         when (= (m:start annot) start)
           collect annot))
 
-(defun map-annotated-instructions (f-instruction f-start f-end
+;;; An alist (IP . thing) for triggering actions when the mapper
+;;; reaches the given IP.
+(defvar *delayed*)
+(defun delay (ip object)
+  (setf *delayed* (merge 'list *delayed* (list (cons ip object)) #'< :key #'car))
+  (values))
+
+(defun map-annotated-instructions (f-instruction f-start f-end f-delayed
                                    bytecode annotations
                                    &key (start 0) (end (length bytecode)) context)
   (let ((next-annotation-index 0)
         (active-annotations (initial-annotations annotations start))
-        (nannotations (length annotations)))
+        (nannotations (length annotations))
+        (*delayed* ()))
     (do-instructions (mnemonic ip longp args :start start :end end) bytecode
       ;; End annotations that have run out.
       (setf active-annotations (end-annotations ip active-annotations
@@ -122,13 +130,16 @@
         (setf active-annotations
               (start-annotations active-annotations new-annotations
                                  f-start context)))
+      ;; Fire any delayed actions.
+      (loop while (and *delayed* (<= (caar *delayed*) ip))
+            do (funcall f-delayed (cdr (pop *delayed*)) context))
       ;; Process the instruction
       (apply f-instruction mnemonic ip longp context args))))
 
 (defun literalizer (function literals)
   (lambda (mnemonic ip longp context &rest args)
     (declare (ignore ip longp))
-    (let ((args (if (cl:eq mnemonic :parse-key-args)
+    (let ((args (if (cl:eq mnemonic 'm:parse-key-args)
                     (destructuring-bind ((t1 . more-args)
                                          (t2 . key-count-info)
                                          (t3 . key-literals-start))
@@ -146,11 +157,11 @@
                                     ((:label :operand) n))))))
       (apply function mnemonic context args))))
 
-(defun map-annotated-instructions-literals (f-instruction f-start f-end
+(defun map-annotated-instructions-literals (f-instruction f-start f-end f-delayed
                                             bytecode literals annotations
                                             &key (start 0) (end (length bytecode))
                                               context)
   (map-annotated-instructions
    (literalizer f-instruction literals)
-   f-start f-end bytecode annotations
+   f-start f-end f-delayed bytecode annotations
    :start start :end end :context context))

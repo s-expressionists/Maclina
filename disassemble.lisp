@@ -101,3 +101,111 @@
 
 (defmethod disassemble ((object m:closure))
   (disassemble (m:template object)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Structured disassembly
+;;;
+
+(defclass sdisassemble-context ()
+  (;; Nesting depth, for printing spaces on each line
+   (%depth :accessor depth :initform 0)
+   ;; An alist (pc type name)
+   ;; where type is either GO or RETURN-FROM and name is the name of the label.
+   (%label-alist :accessor label-alist :initform ())))
+
+(defun find-label (pc context) (rest (assoc pc (label-alist context))))
+(defun push-label (pc type name context)
+  (push (list pc type name) (label-alist context)))
+
+(defgeneric sdisassemble-start (annotation context)
+  (:method (a c) (declare (ignore a c))))
+(defgeneric sdisassemble-end (annotation context)
+  (:method (a c) (declare (ignore a c))))
+
+(defgeneric sdisassemble-comment (mnemonic context &rest args)
+  (:method (m c &rest a) (declare (ignore m c a)) nil))
+
+(defun sdisassemble-instruction (mnemonic context &rest args)
+  (format t "~vt~(~a~)~{ ~s~}~@[ ; ~a~]~%" (depth context) mnemonic args
+          (apply #'sdisassemble-comment mnemonic context args)))
+
+(defun jump-comment (context args)
+  (destructuring-bind (dest) args
+    (let ((label (find-label dest context)))
+      (if label
+          (format nil "~a ~a" (first label) (second label))
+          nil))))
+(defmethod sdisassemble-comment ((mnemonic (eql 'm:jump-8)) context &rest args)
+  (jump-comment context args))
+(defmethod sdisassemble-comment ((mnemonic (eql 'm:jump-16)) context &rest args)
+  (jump-comment context args))
+(defmethod sdisassemble-comment ((mnemonic (eql 'm:jump-24)) context &rest args)
+  (jump-comment context args))
+
+(defmethod sdisassemble-start ((annot m:function) context)
+  (format t "function ~a~%" (m:name annot))
+  (setf (depth context) 1))
+(defmethod sdisassemble-end ((annot m:function) context)
+  (setf (depth context) 0))
+
+(defmethod sdisassemble-start ((annot m:block-info) context)
+  (format t "~vt(BLOCK ~a~%" (depth context) (m:name annot))
+  (push-label (m:end annot) 'return-from (m:name annot) context)
+  (incf (depth context)))
+(defmethod sdisassemble-end ((annot m:block-info) context)
+  (decf (depth context))
+  (format t "~vt)~%" (depth context)))
+
+(defmethod sdisassemble-start ((annot m:tagbody-info) context)
+  (format t "~vt(TAGBODY~%" (depth context))
+  (loop with end = (m:end annot)
+        for (name . ip) in (m:tags annot)
+        do (push-label ip 'go name context)
+        unless (= ip end) ; handled specially in the other method
+          do (delay ip name))
+  (incf (depth context) 2))
+(defmethod sdisassemble-end ((annot m:tagbody-info) context)
+  (let ((endtag (rassoc (m:end annot) (m:tags annot))))
+    ;; print the end tag now rather than with the delay,
+    ;; so that it can be printed within the tagbody context
+    (format t "~vt~a:~%" (1- (depth context)) (car endtag)))
+  (decf (depth context) 2)
+  (format t "~vt) ; TAGBODY~%" (depth context)))
+
+(defmethod sdisassemble-start ((annot m:vars-info) context)
+  (format t "~vt(LET (~:{(~a #~d)~^ ~})~%" (depth context)
+          (loop for var in (m:bindings annot)
+                collect (list (m:name var) (m:index var))))
+  (incf (depth context) 2))
+(defmethod sdisassemble-end ((annot m:vars-info) context)
+  (decf (depth context) 2)
+  (format t "~vt) ; LET~%" (depth context)))
+
+(defun sdisassemble-delayed (label context)
+  ;; Print the label.
+  (format t "~vt~a:~%" (1- (depth context)) label))
+
+(defun %sdisassemble (bytecode literals annotations
+                      &key (start 0) (end (length bytecode)))
+  (format t "~&---module---~%")
+  (map-annotated-instructions-literals
+   #'sdisassemble-instruction
+   #'sdisassemble-start #'sdisassemble-end
+   #'sdisassemble-delayed
+   bytecode literals annotations
+   :start start :end end :context (make-instance 'sdisassemble-context)))
+
+(defgeneric sdisassemble (object))
+(defmethod sdisassemble ((mod m:module))
+  (%sdisassemble (m:bytecode mod) (m:literals mod) (m:pc-map mod)))
+
+(defmethod sdisassemble ((object m:function))
+  (let ((module (m:module object))
+        (entry-pc (m:entry-pc object)))
+    (%sdisassemble (m:bytecode module) (m:literals module) (m:pc-map module)
+                   :start entry-pc
+                   :end (+ entry-pc (m:size object)))))
+
+(defmethod sdisassemble ((object m:closure))
+  (sdisassemble (m:template object)))
