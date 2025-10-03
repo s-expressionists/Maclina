@@ -22,7 +22,7 @@
    ;; Debug stuff.
    (%name :initform cl:nil :accessor name)
    ;; not exported - use cl:documentation
-   (%documentation :accessor bytecode-function-documentation)
+   (%documentation :initform () :accessor bytecode-function-documentation)
    (%lambda-list :accessor lambda-list))
   (:metaclass closer-mop:funcallable-standard-class))
 
