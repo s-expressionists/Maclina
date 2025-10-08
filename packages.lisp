@@ -35,4 +35,7 @@
   (:shadow #:disassemble)
   (:local-nicknames (#:m #:maclina.machine))
   (:export #:disassemble #:display-instruction)
-  (:export #:info-at #:most-specific-info-at #:source-at #:function-at))
+  (:export #:info-at #:most-specific-info-at #:source-at #:function-at)
+  (:export #:map-instructions #:do-instructions
+           #:map-annotated-instructions #:map-annotated-instructions-literals
+           #:delay))
