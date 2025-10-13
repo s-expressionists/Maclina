@@ -1164,18 +1164,21 @@
                          and do (assemble context
                                   m:make-uninitialized-closure
                                   literal-index))))
-          (emit-bind context (length definitions) (context-frame-end context))
-          (dolist (closure closures)
-            (loop for var across (cfunction-closed (car closure))
-                  do (reference-lexical-variable var new-context))
-            (assemble context m:initialize-closure (cdr closure)))
           (if (null lexinfos)
               (compile-progn body (add-declarations new-env decls) new-context)
               (let ((start (make-label)) (end (make-label)))
+                ;; Bind the functions, and note the binding
+                (emit-bind context (length definitions) (context-frame-end context))
                 (emit-label new-context start)
                 (push-map-info (make-instance 'm:vars-info
                                  :start start :end end :bindings lexinfos)
                                new-context)
+                ;; Initialize closures
+                (dolist (closure closures)
+                  (loop for var across (cfunction-closed (car closure))
+                        do (reference-lexical-variable var new-context))
+                  (assemble context m:initialize-closure (cdr closure)))
+                ;; Finally, the actual body of the labels.
                 (compile-progn body (add-declarations new-env decls) new-context)
                 (emit-label new-context end)))
           (warn-ignorance lexinfos (context-source context)))))))
