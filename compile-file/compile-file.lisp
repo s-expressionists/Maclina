@@ -42,6 +42,7 @@
 		with *environment* = environment
 		with eclector.base:*client* = reader-client
                 with cmp:*source-locations* = (make-hash-table)
+                with *module-native-id* = 0
                 for source-begin = (eclector.base:source-position reader-client input)
 		for form = (eclector.parse-result:read reader-client input nil eof)
                 for source-end = (eclector.base:source-position reader-client input)

@@ -253,6 +253,16 @@
    (%function :initarg :function :reader ll-function :type creator)
    (%lambda-list :initarg :lambda-list :reader lambda-list :type creator)))
 
+(defclass function-native-attr (attribute)
+  ((%name :initform (ensure-constant (function-native-attr-name m:*client*)))
+   (%function :initarg :function :reader ll-function :type creator)
+   ;; ID number of the native module
+   (%module-id :initarg :id :reader module-id :type (unsigned-byte 16))
+   ;; A sequence of indices provided by the client,
+   ;; with client-specific meaning,
+   ;; but which all must be (unsigned-byte 16)
+   (%indices :initarg :indices :reader indices)))
+
 (defclass spi-attr (attribute)
   ((%name :initform (ensure-constant "source-pos-info"))
    (%function :initarg :function :reader spi-attr-function :type creator)
@@ -308,6 +318,17 @@
    (%declarations :initarg :declarations :reader declarations :type list)))
 (defclass debug-info-vars (debug-info)
   ((%vars :initarg :vars :reader vars :type list)))
+
+(defclass module-native-attr (attribute)
+  ((%name :initform (ensure-constant (module-native-attr-name m:*client*)))
+   (%module-id :initarg :id :reader module-id :type (unsigned-byte 16))
+   ;; The bytecode module creator
+   (%module :initarg :module :reader module :type creator)
+   ;; The native code as bytes
+   (%code :initarg :code :reader code
+          :type (simple-array (unsigned-byte 8) (*)))
+   ;; Vector of literals (i.e. creators) used by the module.
+   (%literals :initarg :literals :reader literals :type simple-vector)))
 
 ;;;
 
@@ -1017,6 +1038,9 @@
         if (typep info '(or cmp:cfunction m:program-structure-info))
           collect (process-debug-info info)))
 
+(defvar *module-native-compiler* nil)
+(defvar *module-native-id*)
+
 (defun add-module (value)
   (multiple-value-bind (bytecode pc-map) (cmp:link value)
     ;; Add the module first to prevent recursion.
@@ -1034,7 +1058,41 @@
       (add-instruction
        (make-instance 'module-debug-attr
          :module mod :infos (process-debug-infos pc-map)))
+      ;; If the client is providing a native compiler, use it.
+      (when *module-native-compiler*
+        (let* ((id *module-native-id*)
+               (nmodule (funcall *module-native-compiler*
+                                 bytecode (cmp:cmodule-literals value)
+                                 pc-map id)))
+          (incf *module-native-id*)
+          (add-instruction
+           (make-instance 'module-native-attr
+             :module mod :id id
+             :code (native-module-code nmodule)
+             :literals (map 'vector #'ensure-module-literal
+                            (native-module-literals nmodule))))
+          ;; Add attributes for the functions as well.
+          ;; We do this here instead of with the functions
+          ;; in order to skip any recursion problems with functions
+          ;; referring to modules, etc.
+          (loop with fmap = (native-module-fmap nmodule)
+                for f across pc-map
+                when (typep f 'cmp:cfunction)
+                  do (let ((n (cdr (assoc f fmap))))
+                       (if n
+                           (add-instruction
+                            (make-instance 'function-native-attr
+                              :function (ensure-function f)
+                              :id id :indices n))
+                           ;; This indicates a bug in the client compiler,
+                           ;; but we can still produce a FASL, so we may
+                           ;; as well.
+                           (warn "BUG: Missing from native fmap: ~s" f))))))
       mod)))
+
+(defgeneric native-module-code (native-module))
+(defgeneric native-module-literals (native-module))
+(defgeneric native-module-fmap (native-module))
 
 (defun ensure-module (module)
   (or (find-oob module) (add-module module)))

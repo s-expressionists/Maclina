@@ -54,6 +54,15 @@
 ;;; To avoid exporting the writer.
 (defun cfunction-nlocals (cfunction) (cfunction-%nlocals cfunction))
 
+;;; Used in further compilation, where the cfunction can be part of the PC map.
+(defmethod m:start ((info cfunction)) (cfunction-final-entry-point info))
+(defmethod m:end ((info cfunction))
+  (+ (cfunction-final-entry-point info) (cfunction-final-size info)))
+
+;;; Also basically useful for further compilation
+(defmethod documentation ((obj cfunction) (eql t))
+  (cfunction-doc obj))
+
 (defstruct (cmodule (:constructor make-cmodule ()))
   (cfunctions (make-array 1 :fill-pointer 0 :adjustable t) :read-only t)
   ;; Each entry in this vector is either a constant-info, an ltv-info,

@@ -497,6 +497,13 @@
   (write-index (ll-function attr) stream)
   (write-index (lambda-list attr) stream))
 
+(defmethod encode ((attr function-native-attr) stream)
+  (write-b32 (* *index-bytes* 2 (* (length (indices attr)) 2)) stream)
+  (write-index (ll-function attr) stream)
+  (write-b16 (module-id attr) stream)
+  (loop for index in (indices attr)
+        do (write-b16 index stream)))
+
 (defmethod encode ((attr spi-attr) stream)
   ;; Write the length.
   (write-b32 (+ *index-bytes* *index-bytes* 8 8 8) stream)
@@ -506,6 +513,18 @@
   (write-b64 (lineno attr) stream)
   (write-b64 (column attr) stream)
   (write-b64 (filepos attr) stream))
+
+(defmethod encode ((attr module-native-attr) stream)
+  (let ((code (code attr))
+        (lits (literals attr)))
+    (write-b32 (+ *index-bytes* 4 (length code) 2 (* *index-bytes* (length lits)))
+               stream)
+    (write-index (module attr) stream)
+    (write-b32 (length code) stream)
+    (write-sequence code stream)
+    (write-b16 (length lits) stream)
+    (loop for creator across lits
+          do (write-index creator stream))))
 
 ;;;
 
