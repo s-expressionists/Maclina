@@ -552,18 +552,12 @@
 (defmethod info-length ((info debug-info-declarations))
   (+ 1 4 4 *index-bytes*))
 
-(defun write-receiving (receiving stream)
-  (write-b32 (etypecase receiving
-               ((unsigned-byte 31) receiving)
-               ((eql t) -1))
-             stream))
-
 (defmethod encode ((info debug-info-the) stream)
   (write-debug-info-mnemonic :the stream)
   (write-b32 (start info) stream)
   (write-b32 (end info) stream)
   (write-index (the-type info) stream)
-  (write-receiving (receiving info) stream))
+  (write-b32 (receiving info) stream))
 (defmethod info-length ((info debug-info-the))
   (+ 1 4 4 *index-bytes* 4))
 
@@ -571,7 +565,7 @@
   (write-debug-info-mnemonic :if stream)
   (write-b32 (start info) stream)
   (write-b32 (end info) stream)
-  (write-receiving (receiving info) stream))
+  (write-b32 (receiving info) stream))
 (defmethod info-length ((info debug-info-if))
   (+ 1 4 4 4))
 
@@ -591,7 +585,7 @@
   (write-b32 (start info) stream)
   (write-b32 (end info) stream)
   (write-index (name info) stream)
-  (write-receiving (receiving info) stream))
+  (write-b32 (receiving info) stream))
 (defmethod info-length ((info debug-info-block))
   (+ 1 4 4 *index-bytes* 4))
 

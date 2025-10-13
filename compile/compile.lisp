@@ -101,7 +101,7 @@
 ;;; The context contains information about what the current form needs
 ;;; to know about what it is enclosed by.
 (defstruct context
-  ;; either an integer, meaning that many values, or T, meaning all
+  ;; either a nonnegative integer, meaning that many values, or -1, meaning all
   receiving
   ;; A list of lexical variable infos and symbols. :special means a special
   ;; variable binding is in place, while a lexical variable info is the variable
@@ -391,14 +391,14 @@
 (defun emit-call (context count)
   (let ((receiving (context-receiving context)))
     (case receiving
-      ((t) (assemble context m:call count))
+      ((-1) (assemble context m:call count))
       ((1) (assemble context m:call-receive-one count))
       (t   (assemble context m:call-receive-fixed count receiving)))))
 
 (defun emit-mv-call (context)
   (let ((receiving (context-receiving context)))
     (case receiving
-      ((t) (assemble context m:mv-call))
+      ((-1) (assemble context m:mv-call))
       ((1) (assemble context m:mv-call-receive-one))
       (t   (assemble context m:mv-call-receive-fixed receiving)))))
 
@@ -650,7 +650,7 @@
     (case form
       ((nil) (assemble context m:nil))
       (t (emit-const context (literal-index form context))))
-    (when (eql (context-receiving context) t)
+    (when (eql (context-receiving context) -1)
       (assemble context m:pop))))
 
 (defgeneric compile-symbol (info form env context))
@@ -716,7 +716,7 @@
            (setf (closed-over-p info) t)
            (assemble context m:closure (closure-index info context))))
     (maybe-emit-cell-ref info context)
-    (when (eql (context-receiving context) 't)
+    (when (eql (context-receiving context) -1)
       (assemble context m:pop))))
 
 (defmethod compile-symbol ((info trucler:constant-variable-description)
@@ -729,14 +729,14 @@
   (declare (ignore env))
   (unless (eql (context-receiving context) 0)
     (assemble context m:symbol-value (value-cell-index form context))
-    (when (eql (context-receiving context) 't)
+    (when (eql (context-receiving context) -1)
       (assemble context m:pop))))
 
 (defmethod compile-symbol ((info null) form env context)
   (warn-unknown 'unknown-variable :name form :source (context-source context))
   (unless (eql (context-receiving context) 0)
     (assemble context m:symbol-value (value-cell-index form context))
-    (when (eql (context-receiving context) 't)
+    (when (eql (context-receiving context) -1)
       (assemble context m:pop))))
 
 (defgeneric compile-combination (info form env context))
@@ -1198,7 +1198,7 @@
   (unless (eql (context-receiving context) 0)
     (assemble context m:dup))
   (assemble context m:symbol-value-set (value-cell-index var context))
-  (when (eql (context-receiving context) t)
+  (when (eql (context-receiving context) -1)
     (assemble context m:pop)))
 
 (defmethod compile-setq-1 ((info trucler:special-variable-description)
@@ -1225,7 +1225,7 @@
           (t
            (assemble context m:closure (closure-index info context))
            (assemble context m:cell-set)))
-    (when (eql (context-receiving context) t)
+    (when (eql (context-receiving context) -1)
       (assemble context m:pop))))
 
 (defmethod compile-special ((op (eql 'setq)) form env context)
@@ -1236,7 +1236,7 @@
     (if (null pairs)
         (unless (eql (context-receiving context) 0)
           (assemble context m:nil)
-          (when (eql (context-receiving context) t)
+          (when (eql (context-receiving context) -1)
             (assemble context m:pop)))
         (do ((pairs pairs (cddr pairs)))
             ((endp pairs))
@@ -1309,7 +1309,7 @@
   (destructure-syntax (function fnameoid)
       (form :source (context-source context))
     (compile-function-lookup fnameoid env context)
-    (when (eql (context-receiving context) t)
+    (when (eql (context-receiving context) -1)
       (assemble context m:pop))))
 
 (defun go-tag-p (object) (typep object '(or symbol integer)))
@@ -1354,7 +1354,7 @@
       ;; return nil if we really have to
       (unless (eql (context-receiving context) 0)
         (assemble context m:nil)
-        (when (eql (context-receiving context) t)
+        (when (eql (context-receiving context) -1)
           (assemble context m:pop))))))
 
 (defun compile-exit (exit-info context)
@@ -1441,7 +1441,7 @@
     (unless (symbolp name) (error 'block-name-not-symbol
                                   :name name
                                   :source (context-source context)))
-    (compile-form value env (new-context context :receiving t))
+    (compile-form value env (new-context context :receiving -1))
     (let ((pair (assoc name (blocks env))))
       (if pair
           (compile-exit (cdr pair) context)
@@ -1465,7 +1465,7 @@
 (defmethod compile-special ((op (eql 'throw)) form env context)
   (destructure-syntax (throw tag result) (form :source (context-source context))
     (compile-form tag env (new-context context :receiving 1))
-    (compile-form result env (new-context context :receiving t))
+    (compile-form result env (new-context context :receiving -1))
     (assemble context m:throw)))
 
 (defmethod compile-special ((op (eql 'progv)) form env context)
@@ -1517,7 +1517,7 @@
       (ecase (context-receiving context)
         ((0))
         ((1) (assemble context m:const index))
-        ((t) (assemble context m:const index)
+        ((-1) (assemble context m:const index)
          (assemble context m:pop))))))
 
 (defmethod compile-special ((op (eql 'symbol-macrolet)) form env context)
@@ -1630,11 +1630,11 @@
     (if forms
         (let ((first (first forms))
               (rest (rest forms)))
-          (compile-form first env (new-context context :receiving t))
+          (compile-form first env (new-context context :receiving -1))
           (assemble context m:push-values)
           (when rest
             (dolist (form rest)
-              (compile-form form env (new-context context :receiving t))
+              (compile-form form env (new-context context :receiving -1))
               (assemble context m:append-values)))
           (emit-mv-call context))
         (emit-call context 0))))
@@ -1939,7 +1939,7 @@
              (make-cfunction module
                              :name name :lambda-list debug-lambda-list
                              :doc doc :source source))
-           (context (make-context :receiving t :function function
+           (context (make-context :receiving -1 :function function
                                   :source source))
            (env (make-lexical-environment env))
            end)
