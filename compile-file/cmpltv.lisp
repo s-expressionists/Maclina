@@ -1075,19 +1075,14 @@
           ;; We do this here instead of with the functions
           ;; in order to skip any recursion problems with functions
           ;; referring to modules, etc.
-          (loop with fmap = (native-module-fmap nmodule)
-                for f across pc-map
-                when (typep f 'cmp:cfunction)
-                  do (let ((n (cdr (assoc f fmap))))
-                       (if n
-                           (add-instruction
-                            (make-instance 'function-native-attr
-                              :function (ensure-function f)
-                              :id id :indices n))
-                           ;; This indicates a bug in the client compiler,
-                           ;; but we can still produce a FASL, so we may
-                           ;; as well.
-                           (warn "BUG: Missing from native fmap: ~s" f))))))
+          ;; It's possible that a bytecode function does not appear
+          ;; in the fmap. This can occur because e.g. it was inlined
+          ;; away. That's ok, it just means we don't dump an attr for it.
+          (loop for (f . indices) in (native-module-fmap nmodule)
+                do (add-instruction
+                    (make-instance 'function-native-attr
+                      :function (ensure-function f)
+                      :id id :indices indices)))))
       mod)))
 
 (defgeneric native-module-code (native-module))
