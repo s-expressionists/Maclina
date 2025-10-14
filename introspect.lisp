@@ -80,7 +80,7 @@
   ;; problem. I don't think this can actually arise.
   (let ((end1 (m:end annot1)) (end2 (m:end annot2)))
     (cond ((< end1 end2) t)
-          ((= end1 end2) (> (m:start annot1) (m:end annot2)))
+          ((= end1 end2) (> (m:start annot1) (m:start annot2)))
           (t nil))))
 
 (defun end-annotations (ip annotations f-end context)
