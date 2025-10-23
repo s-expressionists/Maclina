@@ -20,6 +20,7 @@
 
 ;;; We don't use Trucler's augmentation protocol internally since we often
 ;;; want to add a bunch of stuff at once, which is awkward in Trucler.
+;;; But we do define some of it, to be nice to macros.
 (defun make-lexical-environment (parent &key (vars (vars parent))
                                           (tags (tags parent))
                                           (blocks (blocks parent))
@@ -62,6 +63,34 @@
 (defmethod trucler:describe-tag
     (client (env lexical-environment) name)
   (cdr (assoc name (tags env))))
+
+(defmethod trucler:add-local-special-variable
+    (client (env lexical-environment) name)
+  (if (typep (trucler:describe-variable client env name)
+             'trucler:special-variable-description)
+      env
+      (make-lexical-environment
+       env
+       :vars (acons name
+                    (make-instance 'trucler:local-special-variable-description
+                      :name name)
+                    (vars env)))))
+
+(defmethod trucler:add-local-symbol-macro
+    (client (env lexical-environment) name expansion)
+  (make-lexical-environment
+   env
+   :vars (acons name (make-symbol-macro name expansion) (vars env))))
+
+(defmethod trucler:add-local-macro (client (env lexical-environment) name expander)
+  (make-lexical-environment
+   env
+   :funs (acons name (make-local-macro name expander) (funs env))))
+
+(defmethod trucler:add-inline (client (env lexical-environment) name inline)
+  ;; FIXME
+  (declare (ignore client name inline))
+  env)
 
 (defun var-info (name env)
   (or (cdr (assoc name (vars env)))
