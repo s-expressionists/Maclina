@@ -47,6 +47,7 @@
 
 (defmethod eclector.reader:interpret-symbol ((client reader-client) input-stream
                                              package-indicator symbol-name internp)
+  (declare (ignore input-stream))
   (if (null package-indicator)
       (make-symbol symbol-name)
       (let ((package (case package-indicator
