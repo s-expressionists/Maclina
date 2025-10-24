@@ -7,18 +7,16 @@
    (%literals :initarg :literals :accessor literals)
    (%pc-map :initarg :pc-map :accessor pc-map)))
 
-(defun make-module (&rest args &key bytecode literals pc-map)
-  (declare (ignore bytecode literals pc-map))
-  (apply #'make-instance 'module args))
-(define-compiler-macro make-module (&rest args)
-  `(make-instance 'module ,@args))
+(defgeneric make-module (client bytecode))
+(defmethod make-module (client bytecode)
+  (make-instance 'module :bytecode bytecode))
 
 (defclass function (closer-mop:funcallable-standard-object)
   ((%module :initarg :module :accessor module)
-   (%locals-frame-size :initarg :locals-frame-size :accessor locals-frame-size)
-   (%environment-size :initarg :environment-size :accessor environment-size)
-   (%entry-pc :initarg :entry-pc :accessor entry-pc)
-   (%size :initarg :size :accessor size)
+   (%locals-frame-size :initarg :locals-frame-size :reader locals-frame-size)
+   (%environment-size :initarg :environment-size :reader environment-size)
+   (%entry-pc :initarg :entry-pc :reader entry-pc)
+   (%size :initarg :size :reader size)
    ;; Debug stuff.
    (%name :initform cl:nil :accessor name)
    ;; not exported - use cl:documentation
@@ -44,7 +42,10 @@
 
 (defgeneric compute-instance-function (client function))
 
-(defun make-function (client module locals-frame-size environment-size entry-pc size)
+(defgeneric make-function (client module
+                           locals-frame-size environment-size entry-pc size))
+(defmethod make-function (client module
+                          locals-frame-size environment-size entry-pc size)
   (let ((fun (make-instance 'function
                :module module
                :locals-frame-size locals-frame-size
@@ -77,8 +78,9 @@
 (defmethod (setf documentation) (new (fun closure) (doc-type (eql 'cl:t)))
   (setf (documentation (template fun) doc-type) new))
 
-(defun make-closure (client template
-                     &optional (env (make-array (environment-size template))))
+(defgeneric make-closure (client template &optional environment))
+(defmethod make-closure (client template
+                         &optional (env (make-array (environment-size template))))
   (let ((clos
           (make-instance 'closure :template template :environment env)))
     (closer-mop:set-funcallable-instance-function

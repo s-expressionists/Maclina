@@ -645,7 +645,7 @@ Did not initialize constants~{ #~d~}"
   (let* ((len (read-ub32 stream))
          (bytecode (make-array len :element-type '(unsigned-byte 8)))
          ;; literals set by setf-literals
-         (module (m:make-module :bytecode bytecode)))
+         (module (m:make-module m:*client* bytecode)))
     (dbgprint " (make-bytecode-module ~d)" len)
     (read-sequence bytecode stream)
     (dbgprint "  bytecode:~{ ~2,'0x~}" (coerce bytecode 'list))

@@ -2134,14 +2134,14 @@
 (defmethod load-literal-info (client (info env-info) env)
   (m:link-environment client (run-time-environment m:*client* env)))
 
-(defgeneric load-map-info (map-info))
+(defgeneric load-map-info (client map-info))
 
-(defmethod load-map-info ((info m:map-info)) info)
-(defmethod load-map-info ((info cfunction)) (cfunction-info info))
+(defmethod load-map-info (client (info m:map-info)) info)
+(defmethod load-map-info (client (info cfunction)) (cfunction-info info))
 
-(defun load-pc-map (pc-map)
+(defun load-pc-map (client pc-map)
   ;; Make a non-adjustable vector.
-  (map 'simple-vector #'load-map-info pc-map))
+  (map 'simple-vector (lambda (i) (load-map-info client i)) pc-map))
 
 ;;; Run down the hierarchy and link the compile time representations
 ;;; of modules and functions together into runtime objects.
@@ -2150,11 +2150,9 @@
     (let* ((cmodule-literals (cmodule-literals cmodule))
            (literal-length (length cmodule-literals))
            (literals (make-array literal-length))
-           (bytecode-module
-             (m:make-module
-              :bytecode bytecode
-              :literals literals))
-           (client m:*client*))
+           (client m:*client*)
+           (bytecode-module (m:make-module client bytecode)))
+      (setf (m:literals bytecode-module) literals)
       ;; Create the real function objects.
       (loop for cfunction across (cmodule-cfunctions cmodule)
             for fun = (m:make-function
@@ -2179,7 +2177,7 @@
                 (lambda (info) (load-literal-info client info env))
                 cmodule-literals)
       ;; Ditto for the PC map.
-      (setf (m:pc-map bytecode-module) (load-pc-map pc-map))))
+      (setf (m:pc-map bytecode-module) (load-pc-map client pc-map))))
   (values))
 
 ;;; Given a cfunction, link constants and return an actual function.

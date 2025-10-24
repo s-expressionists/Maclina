@@ -36,6 +36,7 @@
            #:assumed-function-now-macro)
   ;; Miscellaneous hooks
   (:export #:debug-lambda-name #:debug-lambda-list)
+  (:export #:load-map-info)
   ;; PC map info related stuff
   (:export #:*source-locations* #:*default-source-location*
            #:form-source-location #:default-source-location))
