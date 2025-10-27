@@ -1,7 +1,6 @@
 (defpackage #:maclina.load
   (:use #:cl)
-  (:local-nicknames (#:m #:maclina.machine)
-                    (#:float #:ieee-floats))
+  (:local-nicknames (#:m #:maclina.machine))
   (:export #:load-bytecode #:load-bytecode-stream))
 
 (in-package #:maclina.load)
@@ -39,6 +38,8 @@
     (find-class 98 sind cnind)
     (init-object-array 99 ub64)
     (environment 100)
+    (make-binary16 102 sind ub16)
+    (make-binary128 103 sind ub128)
     (attribute 255 name nbytes . data)))
 
 ;;; Read an unsigned n-byte integer from a ub8 stream, big-endian.
@@ -412,16 +413,16 @@ Did not initialize constants~{ #~d~}"
         ((:nil :t)) ; nothing, or handled via initialize-array
         (:base-char (undump (code-char (read-byte stream))))
         (:character (read-utf8 array stream))
-        (:binary32 (undump (float:decode-float32 (read-ub32 stream))))
-        (:binary64 (undump (float:decode-float64 (read-ub64 stream))))
+        (:binary32 (undump (decode-float32 (read-ub32 stream))))
+        (:binary64 (undump (decode-float64 (read-ub64 stream))))
         (:complex-binary32
          (undump
-          (complex (float:decode-float32 (read-ub32 stream))
-                   (float:decode-float32 (read-ub32 stream)))))
+          (complex (decode-float32 (read-ub32 stream))
+                   (decode-float32 (read-ub32 stream)))))
         (:complex-binary64
          (undump
-          (complex (float:decode-float64 (read-ub64 stream))
-                   (float:decode-float64 (read-ub64 stream)))))
+          (complex (decode-float64 (read-ub64 stream))
+                   (decode-float64 (read-ub64 stream)))))
         (:unsigned-byte1 (read-sub-byte array stream 1))
         (:unsigned-byte2 (read-sub-byte array stream 2))
         (:unsigned-byte4 (read-sub-byte array stream 4))
@@ -488,15 +489,49 @@ Did not initialize constants~{ #~d~}"
                        (setf result (logior (ash result 64) word)))
                   finally (return (if negp (- result) result)))))))
 
+;;; See semantics notes in compile-file/encode.lisp.
+(macrolet ((define-decoder (decoder type exponent-bits significand-bits)
+             (let* ((total-bits (+ 1 exponent-bits significand-bits))
+	            (exponent-offset (1- (expt 2 (1- exponent-bits))))
+	            (sign-part `(ldb (byte 1 ,(1- total-bits)) bits))
+	            (exponent-part `(ldb (byte ,exponent-bits ,significand-bits) bits))
+	            (significand-part `(ldb (byte ,significand-bits 0) bits)))
+               `(progn
+                  (defun ,decoder (bits)
+	            (declare (type (unsigned-byte ,total-bits) bits))
+	            (let* ((sign ,sign-part)
+		           (exponent ,exponent-part)
+		           (significand ,significand-part))
+                      (if (zerop exponent)
+                          (setf exponent 1)
+                          (setf (ldb (byte 1 ,significand-bits) significand) 1))
+                      (let ((float-significand (coerce significand ',type)))
+                        (scale-float (if (zerop sign) float-significand (- float-significand))
+                                     (- exponent ,(+ exponent-offset significand-bits))))))))))
+  (define-decoder decode-float16 short-float 5 10)
+  (define-decoder decode-float32 single-float 8 23)
+  (define-decoder decode-float64 double-float 11 52)
+  (define-decoder decode-float128 long-float 15 112))
+
+(defmethod %load-instruction ((mnemonic (eql 'make-short-float)) stream)
+  (let ((bits (read-ub16 stream)))
+    (dbgprint " (make-ub16 #x~4,'0x)" bits)
+    (setf (next-constant) (decode-float16 bits))))
+
 (defmethod %load-instruction ((mnemonic (eql 'make-single-float)) stream)
   (let ((bits (read-ub32 stream)))
     (dbgprint " (make-single-float #x~4,'0x)" bits)
-    (setf (next-constant) (float:decode-float32 bits))))
+    (setf (next-constant) (decode-float32 bits))))
 
 (defmethod %load-instruction ((mnemonic (eql 'make-double-float)) stream)
   (let ((bits (read-ub64 stream)))
     (dbgprint " (make-double-float #x~8,'0x)" bits)
-    (setf (next-constant) (float:decode-float64 bits))))
+    (setf (next-constant) (decode-float64 bits))))
+
+(defmethod %load-instruction ((mnemonic (eql 'make-binary128)) stream)
+  (let ((bits (read-ub128 stream)))
+    (dbgprint " (make-long-float #x~8,'0x)" bits)
+    (setf (next-constant) (decode-float128 bits))))
 
 (defmethod %load-instruction ((mnemonic (eql 'ratio)) stream)
   (let ((numi (read-index stream)) (deni (read-index stream)))

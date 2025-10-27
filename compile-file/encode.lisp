@@ -56,9 +56,8 @@
     (find-class 98 sind cnind)
     (init-object-array 99 ub64)
     (environment 100)
-    (fcell-set 101 nameind)
-    (vcell-set 102 nameind)
-    (ccell-set 103 nameind)
+    (make-binary16 102 sind ub16)
+    (make-binary128 103 sind ub128)
     (attribute 255 name nbytes . data)))
 
 (defparameter +di-ops+
@@ -83,6 +82,7 @@
         for byte = (ldb (byte 8 i) int)
         do (write-byte byte stream)))
 
+(defun write-b128 (word stream) (write-b word 16 stream))
 (defun write-b64 (word stream) (write-b word 8 stream))
 (defun write-b32 (word stream) (write-b word 4 stream))
 (defun write-b16 (word stream) (write-b word 2 stream))
@@ -245,18 +245,18 @@
             ((equal packing-type :character)
 	     (write-utf8 (prototype inst) stream))
             ((equal packing-type :binary32)
-             (dump (write-b32 (ieee-floats:encode-float32 elem) stream)))
+             (dump (write-b32 (encode-float32 elem) stream)))
             ((equal packing-type :binary64)
-             (dump (write-b64 (ieee-floats:encode-float64 elem) stream)))
+             (dump (write-b64 (encode-float64 elem) stream)))
             ((equal packing-type :complex-binary32)
-             (dump (write-b32 (ieee-floats:encode-float32 (realpart elem))
+             (dump (write-b32 (encode-float32 (realpart elem))
                               stream)
-                   (write-b32 (ieee-floats:encode-float32 (imagpart elem))
+                   (write-b32 (encode-float32 (imagpart elem))
                               stream)))
             ((equal packing-type :complex-binary64)
-             (dump (write-b64 (ieee-floats:encode-float64 (realpart elem))
+             (dump (write-b64 (encode-float64 (realpart elem))
                               stream)
-                   (write-b64 (ieee-floats:encode-float64 (imagpart elem))
+                   (write-b64 (encode-float64 (imagpart elem))
                               stream)))
             ((equal packing-type :unsigned-byte1)
              (write-sub-byte (prototype inst) stream 1))
@@ -386,13 +386,75 @@
           for word = (ldb (byte 64 pos) anumber)
           do (write-b64 word stream))))
 
+;;; Adapted from the IEEE-floats library (Marijn Haverbeke)
+;;; Unlike that library, we map implementation float types
+;;; to IEEE formats as follows:
+;;; shorts = binary16
+;;; singles = binary32
+;;; doubles = binary64
+;;; longs = binary128
+;;; So we encode singles as binary32 (for example) and decode binary32 to
+;;; single floats when loading.
+;;; If the implementation merges some types we do too, so e.g. if
+;;; short = single, we treat shorts as singles and so they must fit in binary32.
+;;; This merging is handled by the ADD-CONSTANT method on FLOAT.
+;;; If the implementation has bigger floats, and we try to encode those
+;;; into a FASL, we signal an error. I think this is only possible on
+;;; Clisp, which has arbitrary-precision long floats.
+;;; An implementation having smaller floats is irrelevant. E.g. if long
+;;; floats are the "extended precision" 80 bit format, we just encode them
+;;; as binary128 anyway. I'm not sure if this round trips perfectly! FIXME?
+;;; Seems to work with Clasp's 80 bit floats.
+;;; Also FIXME, we do not support NaN and infinity. This would require
+;;; implementation hooks. Shinmera's float-features is probably good, but
+;;; even if we use it I'd like to keep these more portable encoders and
+;;; decoders in case implementations have weird widths.
+(macrolet ((define-encoder (encoder type exponent-bits significand-bits)
+             (let* ((total-bits (+ 1 exponent-bits significand-bits))
+	            (exponent-offset (1- (expt 2 (1- exponent-bits))))
+	            (sign-part `(ldb (byte 1 ,(1- total-bits)) bits))
+	            (exponent-part `(ldb (byte ,exponent-bits ,significand-bits) bits))
+	            (significand-part `(ldb (byte ,significand-bits 0) bits)))
+               `(progn
+                  (defun ,encoder (float)
+	            (declare (type ,type float))
+                    (multiple-value-bind (sign significand exponent)
+                        (multiple-value-bind (significand exponent sign) (decode-float float)
+                          (let ((exponent (if (= 0 significand)
+                                              exponent
+                                              (+ (1- exponent) ,exponent-offset)))
+                                (sign (if (= sign 1.0) 0 1)))
+                            (unless (< exponent ,(expt 2 exponent-bits))
+                              (error "Floating point overflow when encoding ~A." float))
+                            (if (<= exponent 0)
+                                (values sign (ash (round (* ,(expt 2 significand-bits) significand)) exponent) 0)
+                                (values sign (round (* ,(expt 2 significand-bits) (1- (* significand 2)))) exponent))))
+	              (let ((bits 0))
+	                (declare (type (unsigned-byte ,total-bits) bits))
+	                (setf ,sign-part sign
+		              ,exponent-part exponent
+		              ,significand-part significand)
+	                bits)))))))
+  (define-encoder encode-float16 short-float 5 10)
+  (define-encoder encode-float32 single-float 8 23)
+  (define-encoder encode-float64 double-float 11 52)
+  (define-encoder encode-float128 long-float 15 112))
+
+(defmethod encode ((inst short-float-creator) stream)
+  (write-mnemonic 'make-binary16 stream)
+  (write-b16 (encode-float16 (prototype inst)) stream))
+
 (defmethod encode ((inst single-float-creator) stream)
   (write-mnemonic 'make-single-float stream)
-  (write-b32 (ieee-floats:encode-float32 (prototype inst)) stream))
+  (write-b32 (encode-float32 (prototype inst)) stream))
 
 (defmethod encode ((inst double-float-creator) stream)
   (write-mnemonic 'make-double-float stream)
-  (write-b64 (ieee-floats:encode-float64 (prototype inst)) stream))
+  (write-b64 (encode-float64 (prototype inst)) stream))
+
+(defmethod encode ((inst long-float-creator) stream)
+  (write-mnemonic 'make-binary128 stream)
+  (write-b128 (encode-float128 (prototype inst)) stream))
 
 (defmethod encode ((inst ratio-creator) stream)
   (write-mnemonic 'ratio stream)

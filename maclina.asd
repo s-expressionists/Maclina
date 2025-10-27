@@ -57,7 +57,7 @@
   :description "Reference implementation file compiler for Maclina."
   :author ("Tarn W. Burton <twburton@gmail.com>"
            "Bike <aeshtaer@gmail.com>")
-  :depends-on (:maclina/compile :eclector :alexandria :ieee-floats)
+  :depends-on (:maclina/compile :eclector :alexandria)
   :components
   ((:module "compile-file"
     :components ((:file "package")
@@ -76,7 +76,7 @@
   :description "Reference implementation FASL loader for Maclina."
   :author ("Tarn W. Burton <twburton@gmail.com>"
            "Bike <aeshtaer@gmail.com>")
-  :depends-on (:maclina/base :ieee-floats)
+  :depends-on (:maclina/base)
   :components ((:file "loadltv")))
 
 (asdf:defsystem #:maclina/vm-shared

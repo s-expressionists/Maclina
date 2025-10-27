@@ -108,8 +108,10 @@
               :type creator)
    (%imagpart :initarg :imagpart :reader complex-creator-imagpart
               :type creator)))
+(defclass short-float-creator (number-creator) ())
 (defclass single-float-creator (number-creator) ())
 (defclass double-float-creator (number-creator) ())
+(defclass long-float-creator (number-creator) ())
 
 (defclass character-creator (vcreator) ())
 
@@ -678,9 +680,13 @@
 (defmethod add-constant ((value float))
   (add-creator
    value
+   ;; NOTE: The order here is important, because we want to handle
+   ;; merged float types. See explanation in encode.lisp.
    (etypecase value
+     (single-float (make-instance 'single-float-creator :prototype value))
      (double-float (make-instance 'double-float-creator :prototype value))
-     (single-float (make-instance 'single-float-creator :prototype value)))))
+     (short-float (make-instance 'short-float-creator :prototype value))
+     (long-float (make-instance 'long-float-creator :prototype value)))))
 
 (defmethod add-constant ((value ratio))
   ;; In most cases it's probably pointless to try to coalesce the numerator
