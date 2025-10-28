@@ -1066,29 +1066,39 @@
          :module mod :infos (process-debug-infos pc-map)))
       ;; If the client is providing a native compiler, use it.
       (when *module-native-compiler*
-        (let* ((id *module-native-id*)
-               (nmodule (funcall *module-native-compiler*
-                                 bytecode (cmp:cmodule-literals value)
-                                 pc-map id)))
-          (incf *module-native-id*)
-          (add-instruction
-           (make-instance 'module-native-attr
-             :module mod :id id
-             :code (native-module-code nmodule)
-             :literals (map 'vector #'ensure-module-literal
-                            (native-module-literals nmodule))))
-          ;; Add attributes for the functions as well.
-          ;; We do this here instead of with the functions
-          ;; in order to skip any recursion problems with functions
-          ;; referring to modules, etc.
-          ;; It's possible that a bytecode function does not appear
-          ;; in the fmap. This can occur because e.g. it was inlined
-          ;; away. That's ok, it just means we don't dump an attr for it.
-          (loop for (f . indices) in (native-module-fmap nmodule)
-                do (add-instruction
-                    (make-instance 'function-native-attr
-                      :function (ensure-function f)
-                      :id id :indices indices)))))
+        (handler-case
+            (let* ((id *module-native-id*)
+                   (nmodule (funcall *module-native-compiler*
+                                     bytecode (cmp:cmodule-literals value)
+                                     pc-map id)))
+              (incf *module-native-id*)
+              (add-instruction
+               (make-instance 'module-native-attr
+                 :module mod :id id
+                 :code (native-module-code nmodule)
+                 :literals (map 'vector #'ensure-module-literal
+                                (native-module-literals nmodule))))
+              ;; Add attributes for the functions as well.
+              ;; We do this here instead of with the functions
+              ;; in order to skip any recursion problems with functions
+              ;; referring to modules, etc.
+              ;; It's possible that a bytecode function does not appear
+              ;; in the fmap. This can occur because e.g. it was inlined
+              ;; away. That's ok, it just means we don't dump an attr for it.
+              (loop for (f . indices) in (native-module-fmap nmodule)
+                    do (add-instruction
+                        (make-instance 'function-native-attr
+                          :function (ensure-function f)
+                          :id id :indices indices))))
+          (serious-condition (e)
+            ;; native modules are just attributes and so fundamentally optional.
+            ;; Compiling is also complicated and error prone. So if we get a
+            ;; serious condition warn about it.
+            ;; Hypothetically this could just be a compiler note, if it's about a
+            ;; compiler bug.
+            (warn "Unhandled serious condition while compiling native module:~%~a
+Abandoning further work on it and moving on."
+                  e))))
       mod)))
 
 (defgeneric native-module-code (native-module))
