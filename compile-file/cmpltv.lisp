@@ -1047,6 +1047,12 @@
 (defvar *module-native-compiler* nil)
 (defvar *module-native-id*)
 
+;;; Native modules need to be correctly ordered, so make sure we don't
+;;; start compiling a native module before setting up the previous one.
+;;; This can only really happen from load-time-value constants, and those
+;;; functions don't really need to be executed quickly anyway.
+(defvar *recursive-native* nil)
+
 (defun add-module (value)
   (multiple-value-bind (bytecode pc-map) (cmp:link value)
     ;; Add the module first to prevent recursion.
@@ -1065,9 +1071,10 @@
        (make-instance 'module-debug-attr
          :module mod :infos (process-debug-infos pc-map)))
       ;; If the client is providing a native compiler, use it.
-      (when *module-native-compiler*
+      (when (and *module-native-compiler* (not *recursive-native*))
         (handler-case
             (let* ((id *module-native-id*)
+                   (*recursive-native* t)
                    (nmodule (funcall *module-native-compiler*
                                      bytecode (cmp:cmodule-literals value)
                                      pc-map id)))
