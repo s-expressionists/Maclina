@@ -23,7 +23,13 @@
 
 (defmethod eclector.reader:call-with-state-value
     ((client reader-client) thunk aspect value)
-  (let ((aspect (if (eql aspect '*readtable*) 'eclector.reader:*readtable* aspect)))
+  (let ((aspect (if (eql aspect '*readtable*) 'eclector.reader:*readtable* aspect))
+        (value (if (eql aspect '*package*)
+                   ;; Per Eclector documentation, it calls this
+                   ;; with a value that's actually a string designator
+                   ;; rather than a package.
+                   (find-package client value)
+                   value)))
     (m:progv m:*client* (cmp:run-time-environment m:*client* *environment*)
       (list aspect) (list value)
       (funcall thunk))))
