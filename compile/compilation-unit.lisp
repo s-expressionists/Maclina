@@ -13,8 +13,8 @@ If the compiler encounters an unresolvable problem it can of course fail immedia
 ;;;; TODO: Make all this client extensible as soon as I can think of a model
 ;;;; for why a client would want to do that.
 
-;;; Evaluate BODY as a progn. Return three values: the primary value returned
-;;; by the BODY, warnings-p, and failure-p.
+;;; Evaluate BODY as a progn. Return at least two values: the values returned
+;;; by the BODY followed by warnings-p and failure-p.
 ;;; warnings-p will be true if the body signaled an unhandled ERROR or WARNING.
 ;;; failure-p will be true if the body signaled an unhandled ERROR, or a WARNING
 ;;;  other than a STYLE-WARNING.
@@ -39,7 +39,7 @@ If the compiler encounters an unresolvable problem it can of course fail immedia
                         (lambda (e)
                           (signal e)
                           (setq ,warningsp t ,failurep t))))
-         (values (progn ,@body) ,warningsp ,failurep)))))
+         (multiple-value-call #'values (progn ,@body) ,warningsp ,failurep)))))
 
 (defvar *in-compilation-unit* nil)
 

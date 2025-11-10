@@ -9,12 +9,18 @@
 ;;; but without needing any intermediate FASL files.
 
 ;;; COMPILE-FILE-TO-UNIT and COMPILE-STREAM-TO-UNIT are lower level.
-;;; Instead of outputting any file, they output a "FASL unit"
+;;; Instead of outputting any file, they output "FASL units"
 ;;; (not to be confused with a compilation unit)
-;;; which is an opaque object representing the compiled code and objects.
+;;; which are opaque object representing the compiled code and objects.
 ;;; FASL units can be passed to WRITE-UNITS or WRITE-UNITS-TO-FILE.
 ;;; Both of these functions accept either a FASL unit or a list thereof,
 ;;; and write a single total FASL to a byte stream or to a file respectively.
+
+;;; the -TO-UNIT functions return four values.
+;;; The first value is the FASL unit. The second is a FASL unit for any CFASL,
+;;; or NIL if none was produced.
+;;; The higher level functions write this cfasl unit but do not return it,
+;;; to match how CL:COMPILE-FILE works.
 
 ;; Print information about a form for *compile-print*.
 (defun describe-form (form)
@@ -28,10 +34,13 @@
                                &key environment
                                  (reader-client *reader-client*)
 		                 ((:client m:*client*) m:*client*)
+                                 output-cfasl
                                &allow-other-keys)
   (cmp:with-compilation-results
     (cmp:with-compilation-unit ()
-      (with-constants ()
+      (let ((*coalescence* (make-instance 'coalescence))
+            (*cfasl-coalescence* (when output-cfasl
+                                   (make-instance 'coalescence))))
 	(m:progv m:*client* (cmp:run-time-environment m:*client* environment)
 	  '(eclector.reader:*readtable* *package*)
 	  (list eclector.reader:*readtable* *package*)
@@ -55,7 +64,8 @@
 		when *compile-print*
                   do (describe-form form)
 		do (compile-toplevel form env)))
-        (finish-fasl-unit)))))
+        (values (finish-fasl-unit)
+                (if output-cfasl (finish-fasl-unit *cfasl-coalescence*) nil))))))
 
 (defun compile-file-to-unit (input-file
                              &rest keys
@@ -79,12 +89,15 @@
 ;; input is a character stream. output is a ub8 stream.
 (defun compile-stream (input output &rest keys
                        &key environment (reader-client *reader-client*)
-		       ((:client m:*client*) m:*client*)
+		         ((:client m:*client*) m:*client*)
+                         output-cfasl
                        &allow-other-keys)
   (declare (ignore environment reader-client))
-  (multiple-value-bind (unit warning failure)
+  (multiple-value-bind (unit cunit warning failure)
       (apply #'compile-stream-to-unit input keys)
     (write-bytecode unit output)
+    (when output-cfasl
+      (write-bytecode cunit output-cfasl))
     (values output warning failure)))
 
 ;;; FIXME: I really doubt this is enough to be conforming.
@@ -123,6 +136,7 @@
                        ((:print *compile-print*) *compile-print*)
                        environment (reader-client *reader-client*)
 		       ((:client m:*client*) m:*client*)
+                       output-cfasl
                      &allow-other-keys)
   ;; passed to compile-file-to-unit
   (declare (ignore external-format environment reader-client))
@@ -133,9 +147,16 @@
                          :if-exists :supersede
                          :if-does-not-exist :create
                          :element-type '(unsigned-byte 8))
-      (multiple-value-bind (unit warningsp failurep)
+      (multiple-value-bind (unit cunit warningsp failurep)
           (apply #'compile-file-to-unit input-file keys)
         (write-bytecode unit out)
+        (when output-cfasl
+          (with-open-file (cout output-cfasl
+                                :direction :output
+                                :if-exists :supersede
+                                :if-does-not-exist :create
+                                :element-type '(unsigned-byte 8))
+            (write-bytecode cunit cout)))
         (values (truename output-file) warningsp failurep)))))
 
 (defun write-units (units stream)
@@ -156,6 +177,7 @@
                         ((:print *compile-print*) *compile-print*)
                         environment (reader-client *reader-client*)
 		        ((:client m:*client*) m:*client*)
+                        output-cfasl
                       &allow-other-keys)
   (declare (ignore external-format environment reader-client))
   (let ((all-warnings-p nil) (all-failure-p nil))
@@ -165,15 +187,21 @@
                          :direction :output :if-exists :supersede
                          :if-does-not-exist :create
                          :element-type '(unsigned-byte 8))
-      (write-units
-       (cmp:with-compilation-unit ()
-         (loop for input-file in input-files
-               collect (multiple-value-bind (unit warningsp failurep)
-                           (apply #'compile-file-to-unit input-file keys)
-                         (setf all-warnings-p (or all-warnings-p warningsp)
-                               all-failure-p (or all-failure-p failurep))
-                         unit)))
-       out))
+      (multiple-value-bind (units cunits)
+          (cmp:with-compilation-unit ()
+            (loop for input-file in input-files
+                  with all-units with all-cunits
+                  do (multiple-value-bind (unit cunit warningsp failurep)
+                         (apply #'compile-file-to-unit input-file keys)
+                       (setf all-warnings-p (or all-warnings-p warningsp)
+                             all-failure-p (or all-failure-p failurep))
+                       (push unit all-units)
+                       (when output-cfasl (push cunit all-cunits)))
+                  finally (return (values (nreverse all-units)
+                                          (nreverse all-cunits)))))
+        (write-units units out)
+        (when output-cfasl
+          (write-units-to-file cunits output-cfasl))))
     (values (truename output-file)
             all-warnings-p all-failure-p)))
 

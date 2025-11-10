@@ -206,10 +206,11 @@
 ;;; FASL units
 ;;;
 ;;; These are the overall product of this file, and its main interface,
-;;; WITH-CONSTANTS and FINISH-FASL-UNIT.
+;;; FINISH-FASL-UNIT.
 ;;; A fasl-unit is conceptually just a sequence of instructions
 ;;; beginning with an INIT-OBJECT-ARRAY. An actual FASL is the a header followed
 ;;; by the encoding of one or more FASL-UNITs.
+;;; It's built out of a COALESCENCE by FINISH-FASL-UNIT.
 
 (defclass fasl-unit ()
   ((%init-object-array :reader init-object-array :initarg :init-object-array
@@ -223,6 +224,30 @@
 (defgeneric instruction-count (fasl-unit))
 (defmethod instruction-count ((fasl-unit fasl-unit))
   (1+ (length (instructions fasl-unit))))
+
+;;; A FASL in progress. This is in an object so that we can build
+;;; multiple FASLs simultaneously for CFASL functionality.
+;;; Contains everything needed while compiling.
+(defclass coalescence ()
+  (;; List of instructions to be executed by the loader. In reverse.
+   (%instructions :initform nil :accessor instructions)
+   ;; EQL hash table from objects to creators.
+   (%coalesce :initform (make-hash-table) :reader coalesce)
+   ;; Another EQL hash table for out-of-band objects that are also "coalesced".
+   ;; So far this means cfunctions, modules, fcells, and vcells.
+   ;; This a separate variable because perverse code could use an out-of-band
+   ;; object in band (e.g. compiling a literal module) and we don't want to
+   ;; confuse those things.
+   (%oob-coalesce :initform (make-hash-table) :reader oob-coalesce)
+   ;; For function cells. EQUAL since function names can be lists.
+   (%fcell-coalesce :initform (make-hash-table :test #'equal)
+                    :reader fcell-coalesce)
+   ;; And variable cells.
+   (%vcell-coalesce :initform (make-hash-table) :reader vcell-coalesce)
+   ;; Since there's only ever at most one environment cell, it's just stored
+   ;; directly in this variable rather than a table.
+   ;; NIL means not initialized yet.
+   (%environment-coalesce :initform nil :accessor environment-coalesce)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -357,71 +382,43 @@
 (defmethod similarp ((creator load-time-value-creator) ltvi)
   (eql (load-time-value-creator-info creator) ltvi))
 
-;;; EQL hash table from objects to creators.
-(defvar *coalesce*)
-
-;;; Another EQL hash table for out-of-band objects that are also "coalesced".
-;;; So far this means cfunctions, modules, fcells, and vcells.
-;;; This a separate variable because perverse code could use an out-of-band
-;;; object in band (e.g. compiling a literal module) and we don't want to
-;;; confuse those things.
-(defvar *oob-coalesce*)
-
-;;; For function cells. EQUAL since function names can be lists.
-(defvar *fcell-coalesce*)
-;;; And variable cells.
-(defvar *vcell-coalesce*)
-;;; Since there's only ever at most one environment cell, it's just
-;;; stored directly in this variable rather than a table.
-(defvar *environment-coalesce*)
+;;; Stack (list) of objects we are in the middle of computing creation forms for.
+;;; This is used to detect circular dependencies.
+;;; We only do this for MAKE-LOAD-FORM because we assume our own
+;;; computations never recurse inappropriately. If they do, it's a bug,
+;;; rather than the user's error.
+;;; This doesn't need to be part of the coalescence object since it only
+;;; matters while adding an object, not between forms.
+(defvar *creating* nil)
 
 ;; Look up a value in the existing instructions.
 ;; On success returns the creator, otherwise NIL.
 ;; Could be extended with coalescence relations or made more efficient,
 ;; for example by multiple tables discriminated by type.
 (defun %find-constant (value)
-  (values (gethash value *coalesce*))
+  (values (gethash value (coalesce *coalescence*)))
   #+(or)
   (find-if (lambda (c) (and (typep c 'creator) (similarp c value)))
            sequence))
 
 (defun find-oob (value)
-  (values (gethash value *oob-coalesce*)))
+  (values (gethash value (oob-coalesce *coalescence*))))
 
-(defun find-fcell (name) (values (gethash name *fcell-coalesce*)))
-(defun find-vcell (name) (values (gethash name *vcell-coalesce*)))
+(defun find-fcell (name) (values (gethash name (fcell-coalesce *coalescence*))))
+(defun find-vcell (name) (values (gethash name (vcell-coalesce *coalescence*))))
 
-(defun find-environment () *environment-coalesce*)
-
-;;; List of instructions to be executed by the loader.
-;;; In reverse.
-(defvar *instructions*)
-
-;;; Stack of objects we are in the middle of computing creation forms for.
-;;; This is used to detect circular dependencies.
-;;; We only do this for MAKE-LOAD-FORM because we assume our own
-;;; computations never recurse inappropriately. If they do, it's a bug,
-;;; rather than the user's problem.
-(defvar *creating*)
-
-(defmacro with-constants ((&key) &body body)
-  `(let ((*instructions* nil) (*creating* nil)
-         (*coalesce* (make-hash-table))
-         (*oob-coalesce* (make-hash-table))
-         (*fcell-coalesce* (make-hash-table :test #'equal))
-         (*vcell-coalesce* (make-hash-table))
-         (*environment-coalesce* nil))
-     ,@body))
+(defun find-environment () (environment-coalesce *coalescence*))
 
 ;;; Should be called from within WITH-CONSTANTS, obviously.
-(defun finish-fasl-unit ()
-  (let ((nobjs (count-if (lambda (i) (typep i 'creator)) *instructions*)))
+(defun finish-fasl-unit (&optional (coalescence *coalescence*))
+  (let* ((instructions (instructions coalescence))
+         (nobjs (count-if (lambda (i) (typep i 'creator)) instructions)))
     (make-instance 'fasl-unit
       :init-object-array (make-instance 'init-object-array :count nobjs)
-      :instructions (reverse *instructions*))))
+      :instructions (reverse instructions))))
 
 (defun find-constant (value)
-  (%find-constant value #+(or) *instructions*))
+  (%find-constant value))
 
 (defun find-constant-index (value)
   (let ((creator (%find-constant value)))
@@ -430,27 +427,27 @@
         nil)))
 
 (defun add-instruction (instruction)
-  (push instruction *instructions*)
+  (push instruction (instructions *coalescence*))
   instruction)
 
 (defun add-creator (value instruction)
-  (setf (gethash value *coalesce*) instruction)
+  (setf (gethash value (coalesce *coalescence*)) instruction)
   (add-instruction instruction))
 
 (defun add-oob (key instruction)
-  (setf (gethash key *oob-coalesce*) instruction)
+  (setf (gethash key (oob-coalesce *coalescence*)) instruction)
   (add-instruction instruction))
 
 (defun add-fcell (key instruction)
-  (setf (gethash key *fcell-coalesce*) instruction)
+  (setf (gethash key (fcell-coalesce *coalescence*)) instruction)
   (add-instruction instruction))
 
 (defun add-vcell (key instruction)
-  (setf (gethash key *vcell-coalesce*) instruction)
+  (setf (gethash key (vcell-coalesce *coalescence*)) instruction)
   (add-instruction instruction))
 
 (defun add-environment (instruction)
-  (setf *environment-coalesce* instruction)
+  (setf (environment-coalesce *coalescence*) instruction)
   (add-instruction instruction))
 
 (defgeneric add-constant (value))
@@ -872,7 +869,7 @@
                         :declarations nil)
       (cmp:compile-into (cmp:make-cmodule) lambda-expression environment)))
 
-(defun compile-file-form (form env)
+(defun compile-file-form (form env &optional (*coalescence* *coalescence*))
   (add-initializer-form form env))
 
 (defclass bytefunction-creator (creator)

@@ -19,6 +19,11 @@
 ;;;  binding or setting it is undefined.)
 (defparameter *source-pathname* nil)
 
+;;; A representation of the FASL we're compiling into; see cmpltv
+(defvar *coalescence*)
+;;; Another for any CFASL
+(defvar *cfasl-coalescence*)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Debugging
