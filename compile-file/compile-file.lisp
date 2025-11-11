@@ -34,6 +34,8 @@
                                &key environment
                                  (reader-client *reader-client*)
 		                 ((:client m:*client*) m:*client*)
+                                 ((:evaluation-client *evaluation-client*)
+                                  m:*client*)
                                  output-cfasl
                                &allow-other-keys)
   (cmp:with-compilation-results
@@ -76,6 +78,8 @@
                                 (pathname (merge-pathnames input-file)))
                                environment (reader-client *reader-client*)
 		               ((:client m:*client*) m:*client*)
+                               ((:evaluation-client *evaluation-client*)
+                                m:*client*)
                              &allow-other-keys)
   (declare (ignore reader-client))
   (with-open-file (in input-file :external-format external-format)
@@ -136,6 +140,7 @@
                        ((:print *compile-print*) *compile-print*)
                        environment (reader-client *reader-client*)
 		       ((:client m:*client*) m:*client*)
+                       ((:evaluation-client *evaluation-client*) m:*client*)
                        output-cfasl
                      &allow-other-keys)
   ;; passed to compile-file-to-unit
@@ -177,6 +182,7 @@
                         ((:print *compile-print*) *compile-print*)
                         environment (reader-client *reader-client*)
 		        ((:client m:*client*) m:*client*)
+                        ((:evaluation-client *evaluation-client*) m:*client*)
                         output-cfasl
                       &allow-other-keys)
   (declare (ignore external-format environment reader-client))

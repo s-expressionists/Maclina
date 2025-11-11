@@ -24,6 +24,11 @@
 ;;; Another for any CFASL
 (defvar *cfasl-coalescence*)
 
+;;; The client to use for compile time evaluation and CFASLs.
+;;; By default it's just the client provided to compile-file, which is in turn
+;;; just maclina.machine:*client*.
+(defvar *evaluation-client*)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Debugging

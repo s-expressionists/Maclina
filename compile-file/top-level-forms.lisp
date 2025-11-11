@@ -8,12 +8,13 @@
 ;;; Evaluate a form at compile time. If we're building a CFASL, dump it
 ;;; in there as well.
 (defun ct-eval (form env)
-  ;; This does a little extra work when building a CFASL - in general
-  ;; compiling the form twice. That's unfortunate but the upside is we
-  ;; get all the special handling in add-initializer-form.
-  (when *cfasl-coalescence*
-    (compile-file-form form env *cfasl-coalescence*))
-  (cmp:eval form env))
+  (let ((m:*client* *evaluation-client*))
+    ;; This does a little extra work when building a CFASL - in general
+    ;; compiling the form twice. That's unfortunate but the upside is we
+    ;; get all the special handling in add-initializer-form.
+    (when *cfasl-coalescence*
+      (compile-file-form form env *cfasl-coalescence*))
+    (cmp:eval form env)))
 
 (defvar *compile-time-too*)
 
