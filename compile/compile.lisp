@@ -2096,8 +2096,20 @@
 (defun link (cmodule)
   (initialize-cfunction-positions cmodule)
   (resolve-fixup-sizes cmodule)
-  (values (create-module-bytecode cmodule)
-          (create-module-pc-map cmodule)))
+  (multiple-value-prog1 (values (create-module-bytecode cmodule)
+                                (create-module-pc-map cmodule))
+    (clear-cmodule cmodule)))
+
+;;; Remove unneeded parts of a cmodule after linking, so they can be
+;;; garbage collected. This consists of the annotations (labels, etc.)
+;;; that are not referenced elsewhere. (Cfunction entry points for example
+;;; remain as they are in the cfunction-entry-point slot.)
+;;; This is important to do when doing compile-file, as it keeps cmodules
+;;; alive for a while, and I have run into heap exhaustion if I don't do
+;;; this clearance.
+(defun clear-cmodule (cmodule)
+  (loop for cfun across (cmodule-cfunctions cmodule)
+        do (setf (cfunction-annotations cfun) #())))
 
 ;;; The compiler works with compilation environments, but for loading
 ;;; in constants and stuff it may need a run-time environment.
