@@ -475,7 +475,7 @@ Did not initialize constants~{ #~d~}"
   (let ((name (read-index stream)))
     (dbgprint " (find-package ~d)" name)
     (setf (next-constant) (let ((name (constant name)))
-                            (or (find-package name)
+                            (or (m:find-package m:*client* *environment* name)
                               (error "No package named ~s" name))))))
 
 (defmethod %load-instruction ((mnemonic (eql 'make-bignum)) stream)

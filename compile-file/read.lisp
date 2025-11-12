@@ -23,14 +23,15 @@
 
 (defmethod eclector.reader:call-with-state-value
     ((client reader-client) thunk aspect value)
-  (let ((aspect (if (eql aspect '*readtable*) 'eclector.reader:*readtable* aspect))
-        (value (if (eql aspect '*package*)
-                   ;; Per Eclector documentation, it calls this
-                   ;; with a value that's actually a string designator
-                   ;; rather than a package.
-                   (find-package client value)
-                   value)))
-    (m:progv m:*client* (cmp:run-time-environment m:*client* *environment*)
+  (let* ((environment (cmp:run-time-environment m:*client* *environment*))
+         (aspect (if (eql aspect '*readtable*) 'eclector.reader:*readtable* aspect))
+         (value (if (eql aspect '*package*)
+                    ;; Per Eclector documentation, it calls this
+                    ;; with a value that's actually a string designator
+                    ;; rather than a package.
+                    (m:find-package client environment value)
+                    value)))
+    (m:progv m:*client* environment
       (list aspect) (list value)
       (funcall thunk))))
 
@@ -47,10 +48,6 @@
   (declare (ignore client environment))
   (cl:package-name package))
 
-(defgeneric find-package (client package-name))
-(defmethod find-package ((client reader-client) package-name)
-  (cl:find-package package-name))
-
 (defmethod eclector.reader:interpret-symbol ((client reader-client) input-stream
                                              package-indicator symbol-name internp)
   (declare (ignore input-stream))
@@ -58,8 +55,9 @@
       (make-symbol symbol-name)
       (let ((package (case package-indicator
                        (:current (eclector.reader:state-value client '*package*))
-                       (:keyword (find-package client "KEYWORD"))
-                       (t (find-package client package-indicator)))))
+                       (:keyword (m:find-package m:*client* *environment* "KEYWORD"))
+                       (t (m:find-package m:*client* *environment*
+                                          package-indicator)))))
         (cond ((null package) (error "No package named ~a" package-indicator))
               (internp (intern symbol-name package))
               (t (multiple-value-bind (symbol accessiblep)
