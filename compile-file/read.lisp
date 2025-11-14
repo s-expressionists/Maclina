@@ -30,6 +30,16 @@
       (cdr (assoc name local-nicknames :test #'string=)))
     (m:find-package client environment name)))
 
+(define-condition package-missing (package-error)
+  ()
+  (:report (lambda (condition stream)
+             (format stream "No package named ~s"
+                     (package-error-package condition)))))
+
+(defun find-package-or-err (client environment name)
+  (or (%find-package client environment name)
+    (error 'package-missing :package name)))
+
 (defmethod eclector.reader:call-with-state-value
     ((client reader-client) thunk aspect value)
   (let* ((environment (cmp:run-time-environment m:*client* *environment*))
@@ -38,7 +48,7 @@
                     ;; Per Eclector documentation, it calls this
                     ;; with a value that's actually a string designator
                     ;; rather than a package.
-                    (%find-package m:*client* environment value)
+                    (find-package-or-err m:*client* environment value)
                     value)))
     (m:progv m:*client* environment
       (list aspect) (list value)
@@ -63,17 +73,26 @@
   (if (null package-indicator)
       (make-symbol symbol-name)
       (let ((package (case package-indicator
-                       (:current (eclector.reader:state-value client '*package*))
-                       (:keyword (%find-package m:*client* *environment* "KEYWORD"))
-                       (t (%find-package m:*client* *environment*
-                                         package-indicator)))))
-        (cond ((null package) (error "No package named ~a" package-indicator))
-              (internp (intern symbol-name package))
-              (t (multiple-value-bind (symbol accessiblep)
-                     (find-symbol symbol-name package)
-                   (if accessiblep
-                       symbol
-                       (error "No symbol ~a:~a" package-indicator symbol-name))))))))
+                       (:current
+                        (let ((cur (eclector.reader:state-value
+                                    client '*package*)))
+                          ;; We disallow this through Eclector above, but
+                          ;; there are other ways we can't control in which
+                          ;; *package* could be set to something illegal.
+                          (assert (packagep cur) ()
+                                  "~s is not bound to a package" '*package*)
+                          cur))
+                       (:keyword (find-package-or-err
+                                  m:*client* *environment* "KEYWORD"))
+                       (t (find-package-or-err m:*client* *environment*
+                                               package-indicator)))))
+        (if internp
+            (intern symbol-name package)
+            (multiple-value-bind (symbol accessiblep)
+                (find-symbol symbol-name package)
+              (if accessiblep
+                  symbol
+                  (error "No symbol ~a:~a" package-indicator symbol-name)))))))
 
 (defclass source-location ()
   ((%pathname :initarg :pathname :reader source-location-pathname)
