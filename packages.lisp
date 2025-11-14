@@ -6,7 +6,7 @@
   (:shadow #:lambda-parameters-limit #:call-arguments-limit
            #:lambda-list-keywords #:multiple-values-limit)
   (:shadow #:function)
-  (:shadow #:find-package)
+  (:shadow #:find-class #:find-package)
   ;; Additional opname exports are done in machine.lisp.
   (:export #:*client*)
   (:export #:module #:make-module #:bytecode #:literals #:pc-map)
@@ -16,7 +16,7 @@
   (:export #:closure #:make-closure #:template #:environment)
   (:export #:compute-instance-function)
   (:export #:link-function #:link-variable #:link-environment
-           #:find-package)
+           #:find-class #:find-package)
   (:export #:boundp #:makunbound #:symbol-value #:call-with-progv #:progv
 	   #:fdefinition #:fmakunbound #:fboundp)
   (:export #:lambda-parameters-limit #:call-arguments-limit

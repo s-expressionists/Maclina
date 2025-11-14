@@ -698,7 +698,8 @@ Did not initialize constants~{ #~d~}"
 (defmethod %load-instruction ((mnemonic (eql 'fdefinition)) stream)
   (let ((namei (read-index stream)))
     (dbgprint " (fdefinition ~d)" namei)
-    (setf (next-constant) (fdefinition (constant namei)))))
+    (setf (next-constant) (m:fdefinition m:*client* *environment*
+                                         (constant namei)))))
 
 (defmethod %load-instruction ((mnemonic (eql 'fcell)) stream)
   (let ((fnamei (read-index stream)))
@@ -737,7 +738,8 @@ Did not initialize constants~{ #~d~}"
 (defmethod %load-instruction ((mnemonic (eql 'find-class)) stream)
   (let ((cni (read-index stream)))
     (dbgprint " (find-class ~d)" cni)
-    (setf (next-constant) (find-class (constant cni)))))
+    (setf (next-constant) (m:find-class m:*client* *environment*
+                                        (constant cni)))))
 
 (defmethod %load-instruction ((mnemonic (eql 'init-object-array)) stream)
   (check-initialization)

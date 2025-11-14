@@ -57,7 +57,8 @@
   :description "Reference implementation file compiler for Maclina."
   :author ("Tarn W. Burton <twburton@gmail.com>"
            "Bike <aeshtaer@gmail.com>")
-  :depends-on (:maclina/compile :eclector :alexandria)
+  :depends-on (:maclina/compile :eclector :alexandria
+                                :trivial-package-local-nicknames)
   :components
   ((:module "compile-file"
     :components ((:file "package")

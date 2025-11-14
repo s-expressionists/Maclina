@@ -34,3 +34,11 @@
     (declare (ignore client))
     '(&whole &optional &rest &body &key &allow-other-keys &aux &environment)))
 (defgeneric multiple-values-limit (client))
+
+;;; A few other things that are useful for the loader but not really related to
+;;; VM state. If we required Clostrum we wouldn't need these, or the fdefinition
+;;; methods above.
+;;; Should signal an error if the class is missing.
+(defgeneric find-class (client environment class-name))
+;;; Also used by the file compiler.
+(defgeneric find-package (client environment package-name))

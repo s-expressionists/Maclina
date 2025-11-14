@@ -733,3 +733,8 @@
 (defmethod m:multiple-values-limit ((client client))
   ;; we use host values, therefore
   multiple-values-limit)
+
+(defmethod m:find-class ((client client) env name)
+  (clostrum:find-class client env name t))
+(defmethod m:find-package ((client client) env name)
+  (clostrum:find-package client env name))

@@ -105,7 +105,25 @@
   (loop for var in '(*read-suppress* *read-eval* *features* *read-base*
 		     *read-default-float-format*)
 	for v = (symbol-value var)
-	do (clostrum:make-parameter client environment var v)))
+	do (clostrum:make-parameter client environment var v))
+  (loop for var in '(*package*)
+        for val in (list (find-package "MACLINA.TEST"))
+        do (clostrum:make-parameter client environment var val)))
+
+(defun define-packages (client environment)
+  (flet ((defpack (name &rest nicknames)
+           (let ((package (find-package name)))
+             (setf (clostrum:find-package client environment name) package
+                   (clostrum:package-name client environment package) name)
+             (loop for nick in nicknames
+                   do (setf (clostrum:find-package client environment nick)
+                            package)))))
+    (defpack "COMMON-LISP" "CL")
+    (defpack "COMMON-LISP-USER" "CL-USER")
+    (defpack "KEYWORD")
+    (defpack "MACLINA.TEST")
+    (defpack "MACLINA.TEST.CROSS")
+    (defpack "MACLINA.TEST.SHAM")))
 
 (defun %fill-environment (client environment)
   (define-specials client environment)
@@ -116,7 +134,8 @@
   (define-stricter-aliases client environment)
   (define-constants client environment)
   (define-macros client environment)
-  (define-variables client environment))
+  (define-variables client environment)
+  (define-packages client environment))
 
 ;;; On top of all that, we need to define a client so that we
 ;;; can define some methods to automatically bind keywords.

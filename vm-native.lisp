@@ -540,3 +540,9 @@
 (defmethod m:multiple-values-limit ((client trucler-native:client))
   ;; we use host values, therefore
   multiple-values-limit)
+
+(defmethod m:find-class ((client trucler-native:client) env name)
+  (find-class name t env))
+(defmethod m:find-package ((client trucler-native:client) env name)
+  (declare (ignore env))
+  (find-package name))

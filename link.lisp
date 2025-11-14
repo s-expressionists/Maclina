@@ -31,13 +31,3 @@
   (:method (client env)
     (declare (ignore client))
     env))
-
-;;; Look up a package. This one is not used by the compiler or VM,
-;;; but is used by the file compiler and loader.
-;;; The PACKAGE-NAME must be a string, i.e. this is more restrictive
-;;; than CL:FIND-PACKAGE.
-(defgeneric find-package (client environment package-name)
-  ;; default: Host environment
-  (:method (client env package-name)
-    (declare (ignore clirent env))
-    (cl:find-package package-name)))

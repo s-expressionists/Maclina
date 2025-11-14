@@ -19,12 +19,20 @@
 	  do (clostrum:make-parameter m:*client* rte var (symbol-value var)))
     ce))
 
-;;; Make a fresh environment containing just *COMPILED*.
+;;; Make a fresh environment containing just *COMPILED*
+;;; and enough packages to load symbols.
 (defun make-clean-load-environment ()
   (let* ((rte (make-instance 'clostrum-basic:run-time-environment))
          (ce (make-instance 'clostrum-basic:compilation-environment
                :parent rte)))
     (clostrum:make-variable m:*client* rte '*compiled* nil)
+    (flet ((defpack (name)
+             (let ((package (find-package name)))
+               (setf (clostrum:find-package m:*client* rte name) package
+                     (clostrum:package-name m:*client* rte package) name))))
+      (defpack "COMMON-LISP")
+      (defpack "KEYWORD")
+      (defpack "MACLINA.TEST"))
     ce))
 
 (defun compile-test-file (input-file &rest keys &key &allow-other-keys)

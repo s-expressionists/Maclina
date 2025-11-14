@@ -21,6 +21,15 @@
     (m:symbol-value m:*client*
 		    (cmp:run-time-environment m:*client* *environment*) aspect)))
 
+(defun %find-package (client environment name)
+  ;; Find a package, accounting for package-local nicknames.
+  (or
+    (let* ((cur (m:symbol-value client environment '*package*))
+           (local-nicknames
+             (trivial-package-local-nicknames:package-local-nicknames cur)))
+      (cdr (assoc name local-nicknames :test #'string=)))
+    (m:find-package client environment name)))
+
 (defmethod eclector.reader:call-with-state-value
     ((client reader-client) thunk aspect value)
   (let* ((environment (cmp:run-time-environment m:*client* *environment*))
@@ -29,7 +38,7 @@
                     ;; Per Eclector documentation, it calls this
                     ;; with a value that's actually a string designator
                     ;; rather than a package.
-                    (m:find-package client environment value)
+                    (%find-package m:*client* environment value)
                     value)))
     (m:progv m:*client* environment
       (list aspect) (list value)
@@ -55,9 +64,9 @@
       (make-symbol symbol-name)
       (let ((package (case package-indicator
                        (:current (eclector.reader:state-value client '*package*))
-                       (:keyword (m:find-package m:*client* *environment* "KEYWORD"))
-                       (t (m:find-package m:*client* *environment*
-                                          package-indicator)))))
+                       (:keyword (%find-package m:*client* *environment* "KEYWORD"))
+                       (t (%find-package m:*client* *environment*
+                                         package-indicator)))))
         (cond ((null package) (error "No package named ~a" package-indicator))
               (internp (intern symbol-name package))
               (t (multiple-value-bind (symbol accessiblep)
