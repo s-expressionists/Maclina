@@ -22,13 +22,14 @@
 		    (cmp:run-time-environment m:*client* *environment*) aspect)))
 
 (defun %find-package (client environment name)
-  ;; Find a package, accounting for package-local nicknames.
+  ;; Find a package, accounting for package-local nicknames,
+  ;; and letting name be any string designator.
   (or
     (let* ((cur (m:symbol-value client environment '*package*))
            (local-nicknames
              (trivial-package-local-nicknames:package-local-nicknames cur)))
       (cdr (assoc name local-nicknames :test #'string=)))
-    (m:find-package client environment name)))
+    (m:find-package client environment (string name))))
 
 (define-condition package-missing (package-error)
   ()
