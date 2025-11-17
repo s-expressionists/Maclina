@@ -89,11 +89,15 @@
                                                package-indicator)))))
         (if internp
             (intern symbol-name package)
-            (multiple-value-bind (symbol accessiblep)
+            (multiple-value-bind (symbol status)
                 (find-symbol symbol-name package)
-              (if accessiblep
-                  symbol
-                  (error "No symbol ~a:~a" package-indicator symbol-name)))))))
+              (ecase status
+                ((:external) symbol)
+                ((:internal :inherited)
+                 (error "~a is not external in ~a"
+                        symbol-name package-indicator))
+                ((nil)
+                 (error "No symbol ~a:~a" package-indicator symbol-name))))))))
 
 (defclass source-location ()
   ((%pathname :initarg :pathname :reader source-location-pathname)
