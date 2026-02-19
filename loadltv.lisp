@@ -50,9 +50,10 @@
         do (setf int (logior (ash int 8) (read-byte stream)))
         finally (return int)))
 
-(defun read-ub64 (stream) (read-ub 8 stream))
-(defun read-ub32 (stream) (read-ub 4 stream))
-(defun read-ub16 (stream) (read-ub 2 stream))
+(defun read-ub128 (stream) (read-ub 16 stream))
+(defun read-ub64  (stream) (read-ub  8 stream))
+(defun read-ub32  (stream) (read-ub  4 stream))
+(defun read-ub16  (stream) (read-ub  2 stream))
 
 ;;; Read a signed n-byte integer from a ub8 stream, big-endian.
 (defun read-sb (n stream)
@@ -209,14 +210,17 @@ Did not initialize constants~{ #~d~}"
 (defgeneric %load-instruction (mnemonic stream))
 
 (defmethod %load-instruction ((mnemonic (eql 'nil)) stream)
+  (declare (ignore stream))
   (dbgprint " (nil)")
   (setf (next-constant) nil))
 
 (defmethod %load-instruction ((mnemonic (eql 't)) stream)
+  (declare (ignore stream))
   (dbgprint " (t)")
   (setf (next-constant) t))
 
 (defmethod %load-instruction ((mnemonic (eql 'cons)) stream)
+  (declare (ignore stream))
   (dbgprint " (cons)")
   (setf (next-constant) (cons nil nil)))
 
@@ -716,6 +720,7 @@ Did not initialize constants~{ #~d~}"
                            (constant vnamei)))))
 
 (defmethod %load-instruction ((mnemonic (eql 'environment)) stream)
+  (declare (ignore stream))
   (dbgprint " (environment)")
   (setf (next-constant) (m:link-environment m:*client* *environment*)))
 

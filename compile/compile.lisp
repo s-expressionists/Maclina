@@ -733,6 +733,7 @@
       (assemble context m:pop))))
 
 (defmethod compile-symbol ((info null) form env context)
+  (declare (ignore env))
   (warn-unknown 'unknown-variable :name form :source (context-source context))
   (unless (eql (context-receiving context) 0)
     (assemble context m:symbol-value (value-cell-index form context))
@@ -1211,6 +1212,7 @@
 
 (defmethod compile-setq-1 ((info trucler:lexical-variable-description)
                            var valf env context)
+  (declare (ignore var))
   (let ((localp (eq (lvar-cfunction info) (context-function context))))
     (unless localp
       (setf (closed-over-p info) t))
@@ -1503,6 +1505,7 @@
     (compile-literal thing env context)))
 
 (defmethod compile-special ((op (eql 'load-time-value)) form env context)
+  (declare (ignore env))
   (destructure-syntax (load-time-value form &optional read-only-p)
       (form :source (context-source context))
     (check-type read-only-p boolean)
@@ -2148,8 +2151,12 @@
 
 (defgeneric load-map-info (client map-info))
 
-(defmethod load-map-info (client (info m:map-info)) info)
-(defmethod load-map-info (client (info cfunction)) (cfunction-info info))
+(defmethod load-map-info (client (info m:map-info))
+  (declare (ignore client))
+  info)
+(defmethod load-map-info (client (info cfunction))
+  (declare (ignore client))
+  (cfunction-info info))
 
 (defun load-pc-map (client pc-map)
   ;; Make a non-adjustable vector.

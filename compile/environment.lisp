@@ -43,7 +43,6 @@
 ;;; maybe use that and not have our own environments at all.
 
 (defmethod trucler:global-environment (client (env lexical-environment))
-  (declare (ignore client))
   (trucler:global-environment client (global-environment env)))
 
 (defmethod trucler:describe-variable
@@ -58,10 +57,12 @@
 
 (defmethod trucler:describe-block
     (client (env lexical-environment) name)
+  (declare (ignore client))
   (cdr (assoc name (blocks env))))
 
 (defmethod trucler:describe-tag
     (client (env lexical-environment) name)
+  (declare (ignore client))
   (cdr (assoc name (tags env))))
 
 (defmethod trucler:add-local-special-variable
@@ -78,11 +79,13 @@
 
 (defmethod trucler:add-local-symbol-macro
     (client (env lexical-environment) name expansion)
+  (declare (ignore client))
   (make-lexical-environment
    env
    :vars (acons name (make-symbol-macro name expansion) (vars env))))
 
 (defmethod trucler:add-local-macro (client (env lexical-environment) name expander)
+  (declare (ignore client))
   (make-lexical-environment
    env
    :funs (acons name (make-local-macro name expander) (funs env))))

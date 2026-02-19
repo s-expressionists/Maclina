@@ -9,6 +9,7 @@
 
 (defgeneric make-module (client bytecode))
 (defmethod make-module (client bytecode)
+  (declare (ignore client))
   (make-instance 'module :bytecode bytecode))
 
 (defclass function (closer-mop:funcallable-standard-object)
