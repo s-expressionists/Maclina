@@ -108,8 +108,10 @@
               :type creator)
    (%imagpart :initarg :imagpart :reader complex-creator-imagpart
               :type creator)))
+(defclass short-float-creator (number-creator) ())
 (defclass single-float-creator (number-creator) ())
 (defclass double-float-creator (number-creator) ())
+(defclass long-float-creator (number-creator) ())
 
 (defclass character-creator (vcreator) ())
 
@@ -201,6 +203,54 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
+;;; FASL units
+;;;
+;;; These are the overall product of this file, and its main interface,
+;;; FINISH-FASL-UNIT.
+;;; A fasl-unit is conceptually just a sequence of instructions
+;;; beginning with an INIT-OBJECT-ARRAY. An actual FASL is the a header followed
+;;; by the encoding of one or more FASL-UNITs.
+;;; It's built out of a COALESCENCE by FINISH-FASL-UNIT.
+
+(defclass fasl-unit ()
+  ((%init-object-array :reader init-object-array :initarg :init-object-array
+                       :type init-object-array)
+   (%instructions :reader instructions :initarg :instructions)))
+
+(defgeneric object-count (fasl-unit))
+(defmethod object-count ((fasl-unit fasl-unit))
+  (init-object-array-count (init-object-array fasl-unit)))
+
+(defgeneric instruction-count (fasl-unit))
+(defmethod instruction-count ((fasl-unit fasl-unit))
+  (1+ (length (instructions fasl-unit))))
+
+;;; A FASL in progress. This is in an object so that we can build
+;;; multiple FASLs simultaneously for CFASL functionality.
+;;; Contains everything needed while compiling.
+(defclass coalescence ()
+  (;; List of instructions to be executed by the loader. In reverse.
+   (%instructions :initform nil :accessor instructions)
+   ;; EQL hash table from objects to creators.
+   (%coalesce :initform (make-hash-table) :reader coalesce)
+   ;; Another EQL hash table for out-of-band objects that are also "coalesced".
+   ;; So far this means cfunctions, modules, fcells, and vcells.
+   ;; This a separate variable because perverse code could use an out-of-band
+   ;; object in band (e.g. compiling a literal module) and we don't want to
+   ;; confuse those things.
+   (%oob-coalesce :initform (make-hash-table) :reader oob-coalesce)
+   ;; For function cells. EQUAL since function names can be lists.
+   (%fcell-coalesce :initform (make-hash-table :test #'equal)
+                    :reader fcell-coalesce)
+   ;; And variable cells.
+   (%vcell-coalesce :initform (make-hash-table) :reader vcell-coalesce)
+   ;; Since there's only ever at most one environment cell, it's just stored
+   ;; directly in this variable rather than a table.
+   ;; NIL means not initialized yet.
+   (%environment-coalesce :initform nil :accessor environment-coalesce)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
 ;;; Attributes are bonus, possibly implementation-defined stuff also in the file.
 ;;; Based closely on Java attributes, the loader has to ignore any it doesn't
 ;;; understand, so it's verboten for attributes to do anything semantically
@@ -230,11 +280,95 @@
    (%function :initarg :function :reader ll-function :type creator)
    (%lambda-list :initarg :lambda-list :reader lambda-list :type creator)))
 
+(defclass function-native-attr (attribute)
+  ((%name :initform (ensure-constant (function-native-attr-name m:*client*)))
+   (%function :initarg :function :reader ll-function :type creator)
+   ;; ID number of the native module
+   (%module-id :initarg :id :reader module-id :type (unsigned-byte 16))
+   ;; A sequence of indices provided by the client,
+   ;; with client-specific meaning,
+   ;; but which all must be (unsigned-byte 16)
+   (%indices :initarg :indices :reader indices)))
+
+(defclass spi-attr (attribute)
+  ((%name :initform (ensure-constant "source-pos-info"))
+   (%function :initarg :function :reader spi-attr-function :type creator)
+   (%pathname :initarg :pathname :reader spi-attr-pathname :type creator)
+   (%lineno :initarg :lineno :reader lineno :type (unsigned-byte 64))
+   (%column :initarg :column :reader column :type (unsigned-byte 64))
+   (%filepos :initarg :filepos :reader filepos :type (unsigned-byte 64))))
+
+;;;
+
+(defclass module-debug-attr (attribute)
+  ((%name :initform (ensure-constant "module-debug-info"))
+   (%module :initarg :module :reader module)
+   ;; A sequence of DEBUG-INFOs (and DEBUG-INFO-FUNCTIONs)
+   (%infos :initarg :infos :reader infos :type sequence)))
+
+(defclass debug-info ()
+  ((%start :initarg :start :reader start :type (unsigned-byte 32))
+   (%end :initarg :end :reader end :type (unsigned-byte 32))))
+
+(defclass debug-info-function ()
+  (;; Doesn't inherit from debug-info since the function
+   ;; has a start and end already.
+   (%function :initarg :function :reader di-function :type creator)))
+
+(defclass debug-info-declarations (debug-info)
+  ((%declarations :initarg :declarations :reader declarations)))
+
+(defclass debug-info-the (debug-info)
+  ((%type :initarg :type :reader the-type)
+   (%receiving :initarg :receiving :reader receiving)))
+
+(defclass debug-info-if (debug-info)
+  ((%receiving :initarg :receiving :reader receiving)))
+
+(defclass debug-info-tagbody (debug-info)
+  ((%tags :initarg :tags :reader tags)))
+
+(defclass debug-info-block (debug-info)
+  ((%name :initarg :name :reader name)
+   (%receiving :initarg :receiving :reader receiving)))
+
+(defclass debug-info-var ()
+  ((%name :initarg :name :reader name :type creator)
+   (%index :initarg :frame-index :reader frame-index :type (unsigned-byte 16))
+   (%cellp :initarg :cellp :reader cellp :type boolean)
+   (%dynamic-extent-p :initarg :dxp :reader dynamic-extent-p :type boolean)
+   (%ignore :initarg :ignore :reader di-ignore
+            :type (member nil cl:ignore cl:ignorable))
+   (%inline :initarg :inline :reader di-inline
+            :type (member nil cl:inline cl:notinline))
+   ;; other declarations (type, user defined)
+   (%declarations :initarg :declarations :reader declarations :type list)))
+(defclass debug-info-vars (debug-info)
+  ((%vars :initarg :vars :reader vars :type list)))
+
+(defclass module-native-attr (attribute)
+  ((%name :initform (ensure-constant (module-native-attr-name m:*client*)))
+   (%module-id :initarg :id :reader module-id :type (unsigned-byte 16))
+   ;; The bytecode module creator
+   (%module :initarg :module :reader module :type creator)
+   ;; The native code as bytes
+   (%code :initarg :code :reader code
+          :type (simple-array (unsigned-byte 8) (*)))
+   ;; Vector of literals (i.e. creators) used by the module.
+   (%literals :initarg :literals :reader literals :type simple-vector)))
+
 ;;;
 
 ;;; If this is true, symbols are avoided when possible, and attributes
 ;;; are not dumped. Experimental for use with chalybeate.
 (defvar *primitive* nil)
+
+;;;
+
+(defgeneric make-load-form (client object &optional environment))
+(defmethod make-load-form (client object &optional env)
+  (declare (ignore client))
+  (cl:make-load-form object env))
 
 ;;;
 
@@ -248,64 +382,43 @@
 (defmethod similarp ((creator load-time-value-creator) ltvi)
   (eql (load-time-value-creator-info creator) ltvi))
 
-;;; EQL hash table from objects to creators.
-(defvar *coalesce*)
-
-;;; Another EQL hash table for out-of-band objects that are also "coalesced".
-;;; So far this means cfunctions, modules, fcells, and vcells.
-;;; This a separate variable because perverse code could use an out-of-band
-;;; object in band (e.g. compiling a literal module) and we don't want to
-;;; confuse those things.
-(defvar *oob-coalesce*)
-
-;;; For function cells. EQUAL since function names can be lists.
-(defvar *fcell-coalesce*)
-;;; And variable cells.
-(defvar *vcell-coalesce*)
-;;; Since there's only ever at most one environment cell, it's just
-;;; stored directly in this variable rather than a table.
-(defvar *environment-coalesce*)
+;;; Stack (list) of objects we are in the middle of computing creation forms for.
+;;; This is used to detect circular dependencies.
+;;; We only do this for MAKE-LOAD-FORM because we assume our own
+;;; computations never recurse inappropriately. If they do, it's a bug,
+;;; rather than the user's error.
+;;; This doesn't need to be part of the coalescence object since it only
+;;; matters while adding an object, not between forms.
+(defvar *creating* nil)
 
 ;; Look up a value in the existing instructions.
 ;; On success returns the creator, otherwise NIL.
 ;; Could be extended with coalescence relations or made more efficient,
 ;; for example by multiple tables discriminated by type.
 (defun %find-constant (value)
-  (values (gethash value *coalesce*))
+  (values (gethash value (coalesce *coalescence*)))
   #+(or)
   (find-if (lambda (c) (and (typep c 'creator) (similarp c value)))
            sequence))
 
 (defun find-oob (value)
-  (values (gethash value *oob-coalesce*)))
+  (values (gethash value (oob-coalesce *coalescence*))))
 
-(defun find-fcell (name) (values (gethash name *fcell-coalesce*)))
-(defun find-vcell (name) (values (gethash name *vcell-coalesce*)))
+(defun find-fcell (name) (values (gethash name (fcell-coalesce *coalescence*))))
+(defun find-vcell (name) (values (gethash name (vcell-coalesce *coalescence*))))
 
-(defun find-environment () *environment-coalesce*)
+(defun find-environment () (environment-coalesce *coalescence*))
 
-;;; List of instructions to be executed by the loader.
-;;; In reverse.
-(defvar *instructions*)
-
-;;; Stack of objects we are in the middle of computing creation forms for.
-;;; This is used to detect circular dependencies.
-;;; We only do this for MAKE-LOAD-FORM because we assume our own
-;;; computations never recurse inappropriately. If they do, it's a bug,
-;;; rather than the user's problem.
-(defvar *creating*)
-
-(defmacro with-constants ((&key) &body body)
-  `(let ((*instructions* nil) (*creating* nil)
-         (*coalesce* (make-hash-table))
-         (*oob-coalesce* (make-hash-table))
-         (*fcell-coalesce* (make-hash-table :test #'equal))
-         (*vcell-coalesce* (make-hash-table))
-         (*environment-coalesce* nil))
-     ,@body))
+;;; Should be called from within WITH-CONSTANTS, obviously.
+(defun finish-fasl-unit (&optional (coalescence *coalescence*))
+  (let* ((instructions (instructions coalescence))
+         (nobjs (count-if (lambda (i) (typep i 'creator)) instructions)))
+    (make-instance 'fasl-unit
+      :init-object-array (make-instance 'init-object-array :count nobjs)
+      :instructions (reverse instructions))))
 
 (defun find-constant (value)
-  (%find-constant value #+(or) *instructions*))
+  (%find-constant value))
 
 (defun find-constant-index (value)
   (let ((creator (%find-constant value)))
@@ -314,27 +427,28 @@
         nil)))
 
 (defun add-instruction (instruction)
-  (push instruction *instructions*)
+  (push instruction (instructions *coalescence*))
   instruction)
 
 (defun add-creator (value instruction)
-  (setf (gethash value *coalesce*) instruction)
+  (setf (gethash value (coalesce *coalescence*)) instruction)
   (add-instruction instruction))
 
 (defun add-oob (key instruction)
-  (setf (gethash key *oob-coalesce*) instruction)
+  (setf (gethash key (oob-coalesce *coalescence*)) instruction)
   (add-instruction instruction))
 
 (defun add-fcell (key instruction)
-  (setf (gethash key *fcell-coalesce*) instruction)
+  (setf (gethash key (fcell-coalesce *coalescence*)) instruction)
   (add-instruction instruction))
 
 (defun add-vcell (key instruction)
-  (setf (gethash key *vcell-coalesce*) instruction)
+  (setf (gethash key (vcell-coalesce *coalescence*)) instruction)
   (add-instruction instruction))
 
 (defun add-environment (instruction)
-  (setf *environment-coalesce* instruction))
+  (setf (environment-coalesce *coalescence*) instruction)
+  (add-instruction instruction))
 
 (defgeneric add-constant (value))
 
@@ -369,33 +483,62 @@
 ;;; equivalent for base char arrays, so the code works fine there.
 ;;; Ditto CHARACTER, and BIT but that's not as important.
 ;;; TODO: For version 1, put more thought into these IDs.
-(defconstant +other-uaet+   #b11111110)
+(defconstant +other-uaet+   #b00000010)
 
-(defvar +array-packing-infos+
-  '((nil                    #b00000000)
-    (base-char              #b10000000)
-    (character              #b11000000)
-    ;;(short-float          #b10100000) ; i.e. binary16
-    (single-float           #b00100000) ; binary32
-    (double-float           #b01100000) ; binary64
-    ;;(long-float           #b11100000) ; binary128?
-    ;;((complex short...)   #b10110000)
-    ((complex single-float) #b00110000)
-    ((complex double-float) #b01110000)
-    ;;((complex long...)    #b11110000)
-    (bit                    #b00000001) ; (2^(code-1)) bits
-    ((unsigned-byte 2)      #b00000010)
-    ((unsigned-byte 4)      #b00000011)
-    ((unsigned-byte 8)      #b00000100)
-    ((unsigned-byte 16)     #b00000101)
-    ((unsigned-byte 32)     #b00000110)
-    ((unsigned-byte 64)     #b00000111)
-    ;;((unsigned-byte 128) ??)
-    ((signed-byte 8)        #b10000100)
-    ((signed-byte 16)       #b10000101)
-    ((signed-byte 32)       #b10000110)
-    ((signed-byte 64)       #b10000111)
-    (t                      #b11111111)))
+(defvar +array-packing-codes+
+  '((:nil                    #b00000000)
+    (:t                      #b00000001)
+    ;; other-uaet            #b00000010
+    (:base-char              #b00100000)
+    (:character              #b00100001)
+    (:binary16               #b01000000)
+    (:binary32               #b01000001)
+    (:binary64               #b01000010)
+    (:binary80               #b01000011)
+    (:binary128              #b01000111)
+    (:complex-binary16       #b01100000)
+    (:complex-binary32       #b01100001)
+    (:complex-binary64       #b01100010)
+    (:complex-binary80       #b01100011)
+    (:complex-binary128      #b01100100)
+    (:unsigned-byte1         #b10000000)
+    (:unsigned-byte2         #b10000001)
+    (:unsigned-byte4         #b10000010)
+    (:unsigned-byte8         #b10000011)
+    (:unsigned-byte16        #b10000100)
+    (:unsigned-byte32        #b10000101)
+    (:unsigned-byte64        #b10000110)
+    (:unsigned-byte128       #b10000111)
+    (:signed-byte8           #b10100011)
+    (:signed-byte16          #b10100100)
+    (:signed-byte32          #b10100101)
+    (:signed-byte64          #b10100110)
+    (:signed-byte128         #b10100111)))
+
+;;; Mapping from array element types to equivalent packing specs above.
+;;; If the element type of an array is not type-equivalent to one of these,
+;;; it should be given the other-uaet code instead. This is independent of
+;;; how the array is packed.
+(defvar +array-uaet-infos+
+  '((nil                    :nil)
+    (base-char              :base-char)
+    (character              :character)
+    (single-float           :binary32)
+    (double-float           :binary64)
+    ((complex single-float) :complex-binary32)
+    ((complex double-float) :complex-binary64)
+    (bit                    :unsigned-byte1)
+    ((unsigned-byte 2)      :unsigned-byte2)
+    ((unsigned-byte 4)      :unsigned-byte4)
+    ((unsigned-byte 8)      :unsigned-byte8)
+    ((unsigned-byte 16)     :unsigned-byte16)
+    ((unsigned-byte 32)     :unsigned-byte32)
+    ((unsigned-byte 64)     :unsigned-byte64)
+    ((signed-byte 8)        :signed-byte8)
+    ((signed-byte 16)       :signed-byte16)
+    ((signed-byte 32)       :signed-byte32)
+    ((signed-byte 64)       :signed-byte64)
+    (t                      :t)))
 
 (defun array-packing-info (array)
   ;; TODO? As mentioned above, we could pack arrays more efficiently
@@ -403,44 +546,52 @@
   ;; checking might be a little too slow though?
   ;; Also wouldn't work for NIL arrays, but who's dumping NIL arrays?
   (let ((aet (array-element-type array)))
-    (dolist (info +array-packing-infos+)
+    (dolist (info +array-uaet-infos+)
       (when (subtypep aet (first info))
-        (return-from array-packing-info info)))
-    (assoc t +array-packing-infos+)))
+        (return-from array-packing-info
+          (assoc (second info) +array-packing-codes+))))
+    ;; unreachable, but just for sanity's sake
+    (assoc t +array-packing-codes+)))
 
 (defun compute-element-type-info (array)
   (let ((aet (array-element-type array)))
-    (dolist (info +array-packing-infos+)
+    (dolist (info +array-uaet-infos+)
       ;; Check for actual type equality.
       ;; We do type= instead of just equal because some implementations,
       ;; like CLASP and ECL, return nonstandard specifiers from a-e-t.
       (when (and (subtypep aet (first info))
                  (subtypep (first info) aet))
-        (return-from compute-element-type-info info)))
+        (return-from compute-element-type-info
+          (second (assoc (second info) +array-packing-codes+)))))
     ;; The element type is something we don't specially code for.
     ;; Dump it as a constant and use +other-uaet+.
     (list (ensure-constant aet) +other-uaet+)))
 
 (defmethod add-constant ((value array))
-  (let* ((element-type-info (compute-element-type-info value))
-         (info (array-packing-info value))
-         (info-type (first info))
-         (arr (add-creator
-               value
-               (make-instance 'array-creator
-                 :prototype value :dimensions (array-dimensions value)
-                 :packing-info info :element-type-info element-type-info))))
-    (when (or (eq info-type t) ; general - dump setf-arefs for elements.
-              (eql (second element-type-info) +other-uaet+))
-      ;; (we have to separate initialization here in case the array
-      ;;  contains itself. packed arrays can't contain themselves)
-      (add-instruction
-       (make-instance 'initialize-array
-         :array arr
-         :values (loop for i below (array-total-size value)
-                       for e = (row-major-aref value i)
-                       collect (ensure-constant e)))))
-    arr))
+  (multiple-value-bind (dims total-size)
+      ;; We dump all arrays as simple, which means we need to ignore anything
+      ;; past the fill pointer.
+      (if (array-has-fill-pointer-p value)
+          (let ((len (length value))) (values (list len) len))
+          (values (array-dimensions value) (array-total-size value)))
+    (let* ((element-type-info (compute-element-type-info value))
+           (info (array-packing-info value))
+           (info-type (first info))
+           (arr (add-creator
+                 value
+                 (make-instance 'array-creator
+                   :prototype value :dimensions dims
+                   :packing-info info :element-type-info element-type-info))))
+      (when (eq info-type :t) ; general - dump setf-arefs for elements.
+        ;; (we have to separate initialization here in case the array
+        ;;  contains itself. packed arrays can't contain themselves)
+        (add-instruction
+         (make-instance 'initialize-array
+           :array arr
+           :values (loop for i below total-size
+                         for e = (row-major-aref value i)
+                         collect (ensure-constant e)))))
+      arr)))
 
 (defun utf8-length (string)
   (loop for c across string
@@ -512,7 +663,8 @@
   (add-creator value
                (make-instance 'package-creator
                  :prototype value
-                 :name (ensure-constant (package-name value)))))
+                 :name (ensure-constant
+                        (package-name m:*client* *environment* value)))))
 
 (defmethod add-constant ((value integer))
   (add-creator
@@ -525,9 +677,13 @@
 (defmethod add-constant ((value float))
   (add-creator
    value
+   ;; NOTE: The order here is important, because we want to handle
+   ;; merged float types. See explanation in encode.lisp.
    (etypecase value
+     (single-float (make-instance 'single-float-creator :prototype value))
      (double-float (make-instance 'double-float-creator :prototype value))
-     (single-float (make-instance 'single-float-creator :prototype value)))))
+     (short-float (make-instance 'short-float-creator :prototype value))
+     (long-float (make-instance 'long-float-creator :prototype value)))))
 
 (defmethod add-constant ((value ratio))
   ;; In most cases it's probably pointless to try to coalesce the numerator
@@ -555,7 +711,7 @@
    value
    (make-instance 'pathname-creator
      :prototype value
-     :host (ensure-constant (pathname-host value))
+     :host (ensure-constant (host-namestring value))
      :device (ensure-constant (pathname-device value))
      :directory (ensure-constant (pathname-directory value))
      :name (ensure-constant (pathname-name value))
@@ -655,7 +811,7 @@
             (t (default))))))
 
 ;;; Make a possibly-special initializer.
-(defun add-initializer-form (form &optional (env *environment*))
+(defun add-initializer-form (form &optional (env (cmp:make-null-lexical-environment *environment*)))
   (flet ((default ()
            (add-instruction
             (make-instance 'general-initializer
@@ -682,7 +838,7 @@
 (defmethod add-constant ((value t))
   (when (member value *creating*)
     (error 'circular-dependency :path *creating*))
-  (multiple-value-bind (create initialize) (make-load-form value)
+  (multiple-value-bind (create initialize) (make-load-form m:*client* value)
     (prog1
         (add-creator value (creation-form-creator value create))
       (add-initializer-form initialize))))
@@ -713,7 +869,7 @@
                         :declarations nil)
       (cmp:compile-into (cmp:make-cmodule) lambda-expression environment)))
 
-(defun compile-file-form (form env)
+(defun compile-file-form (form env &optional (*coalescence* *coalescence*))
   (add-initializer-form form env))
 
 (defclass bytefunction-creator (creator)
@@ -740,12 +896,12 @@
     ;; Something to consider: Any of these, but most likely the lambda list,
     ;; could contain unexternalizable data. In this case we should find a way
     ;; to gracefully and silently not dump the attribute.
+    (when (cmp:cfunction-name value)
+      (add-instruction (make-instance 'name-attr
+                         :object inst
+                         :objname (ensure-constant
+                                   (cmp:cfunction-name value)))))
     (unless *primitive*
-      (when (cmp:cfunction-name value)
-        (add-instruction (make-instance 'name-attr
-                           :object inst
-                           :objname (ensure-constant
-                                     (cmp:cfunction-name value)))))
       (when (cmp:cfunction-doc value)
         (add-instruction (make-instance 'docstring-attr
                            :object inst
@@ -755,7 +911,15 @@
         (add-instruction (make-instance 'lambda-list-attr
                            :function inst
                            :lambda-list (ensure-constant
-                                         (cmp:cfunction-lambda-list value))))))
+                                         (cmp:cfunction-lambda-list value)))))
+      (when (cmp:cfunction-source value)
+        (multiple-value-bind (path lineno column pos)
+            (source-location-data m:*client* (cmp:cfunction-source value))
+          (add-instruction
+           (make-instance 'spi-attr
+             :function inst
+             :pathname (ensure-constant path)
+             :lineno lineno :column column :filepos pos)))))
     inst))
 
 (defclass bytemodule-creator (vcreator)
@@ -815,20 +979,135 @@
   (or (find-environment)
       (add-environment (make-instance 'environment-lookup))))
 
+(defgeneric process-debug-info (info))
+
+(defmethod process-debug-info ((info cmp:cfunction))
+  (make-instance 'debug-info-function
+    :function (ensure-function info)))
+
+(defmethod process-debug-info ((info m:declarations-info))
+  (make-instance 'debug-info-declarations
+    :start (m:start info) :end (m:end info)
+    :declarations (ensure-constant (m:declarations info))))
+
+(defmethod process-debug-info ((info m:the-info))
+  (make-instance 'debug-info-the
+    :start (m:start info) :end (m:end info)
+    :type (ensure-constant (m:the-type info))
+    :receiving (m:receiving info)))
+
+(defmethod process-debug-info ((info m:if-info))
+  (make-instance 'debug-info-if
+    :start (m:start info) :end (m:end info)
+    :receiving (m:receiving info)))
+
+(defmethod process-debug-info ((info m:tagbody-info))
+  (make-instance 'debug-info-tagbody
+    :start (m:start info) :end (m:end info)
+    :tags (loop for (tag . ip) in (m:tags info)
+                collect (cons (ensure-constant tag) ip))))
+
+(defmethod process-debug-info ((info m:block-info))
+  (make-instance 'debug-info-block
+    :start (m:start info) :end (m:end info)
+    :name (ensure-constant (m:name info))
+    :receiving (m:receiving info)))
+
+(defmethod process-debug-info ((info m:vars-info))
+  (make-instance 'debug-info-vars
+    :start (m:start info) :end (m:end info)
+    :vars (loop for var in (m:bindings info)
+                for adecls = (m:declarations var)
+                for ignore = (loop for d in adecls
+                                   when (member d '(cl:ignore cl:ignorable))
+                                     return d)
+                for inline = (loop for d in adecls
+                                   when (member d '(cl:inline cl:notinline))
+                                     return d)
+                for decls = (set-difference adecls
+                                            '(cl:dynamic-extent cl:ignore
+                                              cl:ignorable cl:inline
+                                              cl:notinline))
+                collect (make-instance 'debug-info-var
+                          :name (ensure-constant (m:name var))
+                          :frame-index (m:index var) :cellp (m:cellp var)
+                          :dxp (not (not (member 'cl:dynamic-extent adecls)))
+                          :ignore ignore :inline inline
+                          :declarations (mapcar #'ensure-constant decls)))))
+
+(defun process-debug-infos (pc-map)
+  ;; Doing source info will require a format for it, so we only dump some infos.
+  (loop for info across pc-map
+        if (typep info '(or cmp:cfunction m:program-structure-info))
+          collect (process-debug-info info)))
+
+(defvar *module-native-compiler* nil)
+(defvar *module-native-id*)
+
+;;; Native modules need to be correctly ordered, so make sure we don't
+;;; start compiling a native module before setting up the previous one.
+;;; This can only really happen from load-time-value constants, and those
+;;; functions don't really need to be executed quickly anyway.
+(defvar *recursive-native* nil)
+
 (defun add-module (value)
-  ;; Add the module first to prevent recursion.
-  (let ((mod
-          (add-oob
-           value
-           (make-instance 'bytemodule-creator
-             :prototype value :lispcode (cmp:link value)))))
-    ;; Modules can indirectly refer to themselves recursively through
-    ;; cfunctions, so we need to 2stage it here.
-    (add-instruction
-     (make-instance 'setf-literals
-       :module mod :literals (map 'simple-vector #'ensure-module-literal
-                                  (cmp:cmodule-literals value))))
-    mod))
+  (multiple-value-bind (bytecode pc-map) (cmp:link value)
+    ;; Add the module first to prevent recursion.
+    (let ((mod
+            (add-oob
+             value
+             (make-instance 'bytemodule-creator
+               :prototype value :lispcode bytecode))))
+      ;; Modules can indirectly refer to themselves recursively through
+      ;; cfunctions, so we need to 2stage it here.
+      (add-instruction
+       (make-instance 'setf-literals
+         :module mod :literals (map 'simple-vector #'ensure-module-literal
+                                    (cmp:cmodule-literals value))))
+      (add-instruction
+       (make-instance 'module-debug-attr
+         :module mod :infos (process-debug-infos pc-map)))
+      ;; If the client is providing a native compiler, use it.
+      (when (and *module-native-compiler* (not *recursive-native*))
+        (handler-case
+            (let* ((id *module-native-id*)
+                   (*recursive-native* t)
+                   (nmodule (funcall *module-native-compiler*
+                                     bytecode (cmp:cmodule-literals value)
+                                     pc-map id)))
+              (incf *module-native-id*)
+              (add-instruction
+               (make-instance 'module-native-attr
+                 :module mod :id id
+                 :code (native-module-code nmodule)
+                 :literals (map 'vector #'ensure-module-literal
+                                (native-module-literals nmodule))))
+              ;; Add attributes for the functions as well.
+              ;; We do this here instead of with the functions
+              ;; in order to skip any recursion problems with functions
+              ;; referring to modules, etc.
+              ;; It's possible that a bytecode function does not appear
+              ;; in the fmap. This can occur because e.g. it was inlined
+              ;; away. That's ok, it just means we don't dump an attr for it.
+              (loop for (f . indices) in (native-module-fmap nmodule)
+                    do (add-instruction
+                        (make-instance 'function-native-attr
+                          :function (ensure-function f)
+                          :id id :indices indices))))
+          (serious-condition (e)
+            ;; native modules are just attributes and so fundamentally optional.
+            ;; Compiling is also complicated and error prone. So if we get a
+            ;; serious condition warn about it.
+            ;; Hypothetically this could just be a compiler note, if it's about a
+            ;; compiler bug.
+            (warn "Unhandled serious condition while compiling native module:~%~a
+Abandoning further work on it and moving on."
+                  e))))
+      mod)))
+
+(defgeneric native-module-code (native-module))
+(defgeneric native-module-literals (native-module))
+(defgeneric native-module-fmap (native-module))
 
 (defun ensure-module (module)
   (or (find-oob module) (add-module module)))

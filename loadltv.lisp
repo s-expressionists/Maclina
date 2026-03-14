@@ -1,7 +1,6 @@
 (defpackage #:maclina.load
   (:use #:cl)
-  (:local-nicknames (#:m #:maclina.machine)
-                    (#:float #:ieee-floats))
+  (:local-nicknames (#:m #:maclina.machine))
   (:export #:load-bytecode #:load-bytecode-stream))
 
 (in-package #:maclina.load)
@@ -39,6 +38,8 @@
     (find-class 98 sind cnind)
     (init-object-array 99 ub64)
     (environment 100)
+    (make-binary16 102 sind ub16)
+    (make-binary128 103 sind ub128)
     (attribute 255 name nbytes . data)))
 
 ;;; Read an unsigned n-byte integer from a ub8 stream, big-endian.
@@ -49,9 +50,10 @@
         do (setf int (logior (ash int 8) (read-byte stream)))
         finally (return int)))
 
-(defun read-ub64 (stream) (read-ub 8 stream))
-(defun read-ub32 (stream) (read-ub 4 stream))
-(defun read-ub16 (stream) (read-ub 2 stream))
+(defun read-ub128 (stream) (read-ub 16 stream))
+(defun read-ub64  (stream) (read-ub  8 stream))
+(defun read-ub32  (stream) (read-ub  4 stream))
+(defun read-ub16  (stream) (read-ub  2 stream))
 
 ;;; Read a signed n-byte integer from a ub8 stream, big-endian.
 (defun read-sb (n stream)
@@ -90,8 +92,8 @@
     (dbgprint "Magic number matches: ~x" magic)))
 
 ;; Bounds for major and minor version understood by this loader.
-(defparameter *min-version* '(0 15))
-(defparameter *max-version* '(0 15))
+(defparameter *min-version* '(0 16))
+(defparameter *max-version* '(0 16))
 
 (defun loadable-version-p (major minor)
   (and
@@ -208,14 +210,17 @@ Did not initialize constants~{ #~d~}"
 (defgeneric %load-instruction (mnemonic stream))
 
 (defmethod %load-instruction ((mnemonic (eql 'nil)) stream)
+  (declare (ignore stream))
   (dbgprint " (nil)")
   (setf (next-constant) nil))
 
 (defmethod %load-instruction ((mnemonic (eql 't)) stream)
+  (declare (ignore stream))
   (dbgprint " (t)")
   (setf (next-constant) t))
 
 (defmethod %load-instruction ((mnemonic (eql 'cons)) stream)
+  (declare (ignore stream))
   (dbgprint " (cons)")
   (setf (next-constant) (cons nil nil)))
 
@@ -240,6 +245,11 @@ Did not initialize constants~{ #~d~}"
 ;;; for one pretty simple function.
 (defun utf8-octets-to-string (bytes)
   (declare (type (simple-array (unsigned-byte 8) (*))))
+  (when (zerop (length bytes))
+    (return-from utf8-octets-to-string
+      ;; just in case the host has weird ideas about
+      ;; the element type of literal strings
+      (load-time-value (make-string 0 :element-type 'character) t)))
   (coerce
    (loop with len = (length bytes)
          with i = 0
@@ -293,7 +303,7 @@ Did not initialize constants~{ #~d~}"
         (a (gensym "ARRAY")) (s (gensym "STREAM")))
     `(let* ((,a ,array) (,s ,stream)
             (total-size (array-total-size ,a)))
-       (multiple-value-bind (full-bytes remainder) (floor total-size 8)
+       (multiple-value-bind (full-bytes remainder) (floor total-size ,perbyte)
          (loop for byteindex below full-bytes
                for index = (* ,perbyte byteindex)
                for byte = (read-byte ,s)
@@ -304,13 +314,14 @@ Did not initialize constants~{ #~d~}"
                                            byte)
                           for arrindex = `(+ index ,j)
                           collect `(setf (row-major-aref array ,arrindex) ,bits)))
-         ;; write remainder
-         (let* ((index (* ,perbyte full-bytes))
-                (byte (read-byte ,s)))
-           (loop for j below remainder
-                 for bit-index = (* ,nbits (- ,perbyte j 1))
-                 for bits = (ldb (byte ,nbits bit-index) byte)
-                 do (setf (row-major-aref ,a (+ index j)) bits)))))))
+         ;; read remainder
+         (unless (zerop remainder)
+           (let* ((index (* ,perbyte full-bytes))
+                  (byte (read-byte ,s)))
+             (loop for j below remainder
+                   for bit-index = (* ,nbits (- ,perbyte j 1))
+                   for bits = (ldb (byte ,nbits bit-index) byte)
+                   do (setf (row-major-aref ,a (+ index j)) bits))))))))
 
 (define-condition illegal-utf8 (invalid-fasl) ())
 
@@ -402,47 +413,32 @@ Did not initialize constants~{ #~d~}"
                  `(loop for i below (array-total-size array)
                         for elem = ,form
                         do (setf (row-major-aref array i) elem))))
-      (cond ((eql etcode +other-uaet+)) ; handled via initialize-array
-            ((equal packing-type 'nil))
-            ((equal packing-type 'base-char)
-             (undump (code-char (read-byte stream))))
-            ((equal packing-type 'character)
-	     (read-utf8 array stream))
-            ((equal packing-type 'single-float)
-             (undump (float:decode-float32 (read-ub32 stream))))
-            ((equal packing-type 'double-float)
-             (undump (float:decode-float64 (read-ub64 stream))))
-            ((equal packing-type '(complex single-float))
-             (undump
-              (complex (float:decode-float32 (read-ub32 stream))
-                       (float:decode-float32 (read-ub32 stream)))))
-            ((equal packing-type '(complex double-float))
-             (undump
-              (complex (float:decode-float64 (read-ub64 stream))
-                       (float:decode-float64 (read-ub64 stream)))))
-            ((equal packing-type 'bit) (read-sub-byte array stream 1))
-            ((equal packing-type '(unsigned-byte 2))
-             (read-sub-byte array stream 2))
-            ((equal packing-type '(unsigned-byte 4))
-             (read-sub-byte array stream 4))
-            ((equal packing-type '(unsigned-byte 8))
-             (read-sequence array stream))
-            ((equal packing-type '(unsigned-byte 16))
-             (undump (read-ub16 stream)))
-            ((equal packing-type '(unsigned-byte 32))
-             (undump (read-ub32 stream)))
-            ((equal packing-type '(unsigned-byte 64))
-             (undump (read-ub64 stream)))
-            ((equal packing-type '(signed-byte 8))
-             (undump (read-sb8  stream)))
-            ((equal packing-type '(signed-byte 16))
-             (undump (read-sb16 stream)))
-            ((equal packing-type '(signed-byte 32))
-             (undump (read-sb32 stream)))
-            ((equal packing-type '(signed-byte 64))
-             (undump (read-sb64 stream)))
-            ((equal packing-type 't)) ; initialize-array takes care of it
-            (t (error "BUG: Unknown packing-type ~s" packing-type))))))
+      (case packing-type
+        ((:nil :t)) ; nothing, or handled via initialize-array
+        (:base-char (undump (code-char (read-byte stream))))
+        (:character (read-utf8 array stream))
+        (:binary32 (undump (decode-float32 (read-ub32 stream))))
+        (:binary64 (undump (decode-float64 (read-ub64 stream))))
+        (:complex-binary32
+         (undump
+          (complex (decode-float32 (read-ub32 stream))
+                   (decode-float32 (read-ub32 stream)))))
+        (:complex-binary64
+         (undump
+          (complex (decode-float64 (read-ub64 stream))
+                   (decode-float64 (read-ub64 stream)))))
+        (:unsigned-byte1 (read-sub-byte array stream 1))
+        (:unsigned-byte2 (read-sub-byte array stream 2))
+        (:unsigned-byte4 (read-sub-byte array stream 4))
+        (:unsigned-byte8 (read-sequence array stream))
+        (:unsigned-byte16 (undump (read-ub16 stream)))
+        (:unsigned-byte32 (undump (read-ub32 stream)))
+        (:unsigned-byte64 (undump (read-ub64 stream)))
+        (:signed-byte8  (undump (read-sb8  stream)))
+        (:signed-byte16 (undump (read-sb16 stream)))
+        (:signed-byte32 (undump (read-sb32 stream)))
+        (:signed-byte64 (undump (read-sb64 stream)))
+        (t (error "BUG: Unknown packing-type ~s" packing-type))))))
 
 (defmethod %load-instruction ((mnemonic (eql 'initialize-array)) stream)
   (let ((index (read-index stream)))
@@ -482,7 +478,9 @@ Did not initialize constants~{ #~d~}"
 (defmethod %load-instruction ((mnemonic (eql 'find-package)) stream)
   (let ((name (read-index stream)))
     (dbgprint " (find-package ~d)" name)
-    (setf (next-constant) (find-package (constant name)))))
+    (setf (next-constant) (let ((name (constant name)))
+                            (or (m:find-package m:*client* *environment* name)
+                              (error "No package named ~s" name))))))
 
 (defmethod %load-instruction ((mnemonic (eql 'make-bignum)) stream)
   (let ((ssize (read-sb64 stream)))
@@ -495,15 +493,49 @@ Did not initialize constants~{ #~d~}"
                        (setf result (logior (ash result 64) word)))
                   finally (return (if negp (- result) result)))))))
 
+;;; See semantics notes in compile-file/encode.lisp.
+(macrolet ((define-decoder (decoder type exponent-bits significand-bits)
+             (let* ((total-bits (+ 1 exponent-bits significand-bits))
+	            (exponent-offset (1- (expt 2 (1- exponent-bits))))
+	            (sign-part `(ldb (byte 1 ,(1- total-bits)) bits))
+	            (exponent-part `(ldb (byte ,exponent-bits ,significand-bits) bits))
+	            (significand-part `(ldb (byte ,significand-bits 0) bits)))
+               `(progn
+                  (defun ,decoder (bits)
+	            (declare (type (unsigned-byte ,total-bits) bits))
+	            (let* ((sign ,sign-part)
+		           (exponent ,exponent-part)
+		           (significand ,significand-part))
+                      (if (zerop exponent)
+                          (setf exponent 1)
+                          (setf (ldb (byte 1 ,significand-bits) significand) 1))
+                      (let ((float-significand (coerce significand ',type)))
+                        (scale-float (if (zerop sign) float-significand (- float-significand))
+                                     (- exponent ,(+ exponent-offset significand-bits))))))))))
+  (define-decoder decode-float16 short-float 5 10)
+  (define-decoder decode-float32 single-float 8 23)
+  (define-decoder decode-float64 double-float 11 52)
+  (define-decoder decode-float128 long-float 15 112))
+
+(defmethod %load-instruction ((mnemonic (eql 'make-short-float)) stream)
+  (let ((bits (read-ub16 stream)))
+    (dbgprint " (make-ub16 #x~4,'0x)" bits)
+    (setf (next-constant) (decode-float16 bits))))
+
 (defmethod %load-instruction ((mnemonic (eql 'make-single-float)) stream)
   (let ((bits (read-ub32 stream)))
     (dbgprint " (make-single-float #x~4,'0x)" bits)
-    (setf (next-constant) (float:decode-float32 bits))))
+    (setf (next-constant) (decode-float32 bits))))
 
 (defmethod %load-instruction ((mnemonic (eql 'make-double-float)) stream)
   (let ((bits (read-ub64 stream)))
     (dbgprint " (make-double-float #x~8,'0x)" bits)
-    (setf (next-constant) (float:decode-float64 bits))))
+    (setf (next-constant) (decode-float64 bits))))
+
+(defmethod %load-instruction ((mnemonic (eql 'make-binary128)) stream)
+  (let ((bits (read-ub128 stream)))
+    (dbgprint " (make-long-float #x~8,'0x)" bits)
+    (setf (next-constant) (decode-float128 bits))))
 
 (defmethod %load-instruction ((mnemonic (eql 'ratio)) stream)
   (let ((numi (read-index stream)) (deni (read-index stream)))
@@ -533,6 +565,22 @@ Did not initialize constants~{ #~d~}"
     (dbgprint " (make-character #x~x) ; ~c" code char)
     (setf (next-constant) char)))
 
+(defun specific-host (host)
+  ;; cmpltv only puts in an actual host if it's a string or list of strings,
+  ;; which should be valid according to CLHS. Otherwise it puts :unspecific.
+  ;; This is because implementations in practice vary on what hosts are, and
+  ;; in particular SBCL seems to use an undocumented structure.
+  ;; And, some implementations, such as SBCL or Clasp until I fix it, do not
+  ;; accept :unspecific which is also supposed to work by my reading of the
+  ;; spec.
+  ;; So, if we have a host of :unspecific, we treat it as if the argument
+  ;; was not supplied to make-pathname, and use make-pathname's defaulting.
+  ;; This may cause problems down the line if someone actually uses an
+  ;; :unspecific host and this means something genuinely less specific.
+  (if (eq host :unspecific)
+      (pathname-host *default-pathname-defaults*)
+      host))
+
 (defmethod %load-instruction ((mnemonic (eql 'make-pathname)) stream)
   (let ((hosti (read-index stream)) (devicei (read-index stream))
         (directoryi (read-index stream)) (namei (read-index stream))
@@ -540,50 +588,81 @@ Did not initialize constants~{ #~d~}"
     (dbgprint " (make-pathname ~d ~d ~d ~d ~d ~d)"
               hosti devicei directoryi namei typei versioni)
     (setf (next-constant)
-          (make-pathname :host (constant hosti)
+          (make-pathname :host (specific-host (constant hosti))
                          :device (constant devicei)
                          :directory (constant directoryi)
                          :name (constant namei)
                          :type (constant typei)
                          :version (constant versioni)))))
 
-(defconstant +other-uaet+   #b11111110)
+(defconstant +other-uaet+   #b00000010)
 
-(defvar +array-packing-infos+
-  '((nil                    #b00000000)
-    (base-char              #b10000000)
-    (character              #b11000000)
-    ;;(short-float          #b10100000) ; i.e. binary16
-    (single-float           #b00100000) ; binary32
-    (double-float           #b01100000) ; binary64
-    ;;(long-float           #b11100000) ; binary128?
-    ;;((complex short...)   #b10110000)
-    ((complex single-float) #b00110000)
-    ((complex double-float) #b01110000)
-    ;;((complex long...)    #b11110000)
-    (bit                    #b00000001) ; (2^(code-1)) bits
-    ((unsigned-byte 2)      #b00000010)
-    ((unsigned-byte 4)      #b00000011)
-    ((unsigned-byte 8)      #b00000100)
-    ((unsigned-byte 16)     #b00000101)
-    ((unsigned-byte 32)     #b00000110)
-    ((unsigned-byte 64)     #b00000111)
-    ;;((unsigned-byte 128) ??)
-    ((signed-byte 8)        #b10000100)
-    ((signed-byte 16)       #b10000101)
-    ((signed-byte 32)       #b10000110)
-    ((signed-byte 64)       #b10000111)
-    ;; invalid:             #b11111110 ; see +other-uaet+
-    (t                      #b11111111)))
+(defvar +array-packing-codes+
+  '((:nil                    #b00000000)
+    (:t                      #b00000001)
+    ;; other-uaet            #b00000010
+    (:base-char              #b00100000)
+    (:character              #b00100001)
+    (:binary16               #b01000000)
+    (:binary32               #b01000001)
+    (:binary64               #b01000010)
+    (:binary80               #b01000011)
+    (:binary128              #b01000111)
+    (:complex-binary16       #b01100000)
+    (:complex-binary32       #b01100001)
+    (:complex-binary64       #b01100010)
+    (:complex-binary80       #b01100011)
+    (:complex-binary128      #b01100100)
+    (:unsigned-byte1         #b10000000)
+    (:unsigned-byte2         #b10000001)
+    (:unsigned-byte4         #b10000010)
+    (:unsigned-byte8         #b10000011)
+    (:unsigned-byte16        #b10000100)
+    (:unsigned-byte32        #b10000101)
+    (:unsigned-byte64        #b10000110)
+    (:unsigned-byte128       #b10000111)
+    (:signed-byte8           #b10100011)
+    (:signed-byte16          #b10100100)
+    (:signed-byte32          #b10100101)
+    (:signed-byte64          #b10100110)
+    (:signed-byte128         #b10100111)))
+
+;;; Mapping from array element types to equivalent packing specs above.
+;;; If the element type of an array is not type-equivalent to one of these,
+;;; it should be given the other-uaet code instead. This is independent of
+;;; how the array is packed.
+(defvar +array-uaet-infos+
+  '((nil                    :nil)
+    (base-char              :base-char)
+    (character              :character)
+    (single-float           :binary32)
+    (double-float           :binary64)
+    ((complex single-float) :complex-binary32)
+    ((complex double-float) :complex-binary64)
+    (bit                    :unsigned-byte1)
+    ((unsigned-byte 2)      :unsigned-byte2)
+    ((unsigned-byte 4)      :unsigned-byte4)
+    ((unsigned-byte 8)      :unsigned-byte8)
+    ((unsigned-byte 16)     :unsigned-byte16)
+    ((unsigned-byte 32)     :unsigned-byte32)
+    ((unsigned-byte 64)     :unsigned-byte64)
+    ((signed-byte 8)        :signed-byte8)
+    ((signed-byte 16)       :signed-byte16)
+    ((signed-byte 32)       :signed-byte32)
+    ((signed-byte 64)       :signed-byte64)
+    (t                      :t)))
 
 (defun decode-packing (code)
-  (or (first (find code +array-packing-infos+ :key #'second))
+  (or (first (find code +array-packing-codes+ :key #'second))
       (error "BUG: Unknown array packing code ~x" code)))
 
 (defun decode-element-type (code stream)
-  (cond ((eql code +other-uaet+) (constant (read-index stream)))
-        ((first (find code +array-packing-infos+ :key #'second)))
-        (t (error "BUG: Unknown array element type code ~x" code))))
+  (if (eql code +other-uaet+)
+      (constant (read-index stream))
+      (let ((pack (find code +array-packing-codes+ :key #'second)))
+        (if pack
+            (first (find (first pack) +array-uaet-infos+ :key #'second))
+            (error "BUG: Unknown array element type code ~x" code)))))
 
 (defmethod %load-instruction ((mnemonic (eql 'make-bytecode-function)) stream)
   (let ((entry-point (read-ub32 stream))
@@ -598,14 +677,14 @@ Did not initialize constants~{ #~d~}"
                 entry-point nlocals nclosed)
       (dbgprint "  module-index = ~d" modulei)
       (setf (next-constant)
-            (m:make-bytecode-function
+            (m:make-function
              m:*client* module nlocals nclosed entry-point size)))))
 
 (defmethod %load-instruction ((mnemonic (eql 'make-bytecode-module)) stream)
   (let* ((len (read-ub32 stream))
          (bytecode (make-array len :element-type '(unsigned-byte 8)))
          ;; literals set by setf-literals
-         (module (m:make-bytecode-module :bytecode bytecode)))
+         (module (m:make-module m:*client* bytecode)))
     (dbgprint " (make-bytecode-module ~d)" len)
     (read-sequence bytecode stream)
     (dbgprint "  bytecode:~{ ~2,'0x~}" (coerce bytecode 'list))
@@ -618,12 +697,13 @@ Did not initialize constants~{ #~d~}"
     (loop for i below nlits
           do (setf (aref lits i) (constant (read-index stream))))
     (dbgprint " (setf-literals ~s ~s)" mod lits)
-    (setf (m:bytecode-module-literals mod) lits)))
+    (setf (m:literals mod) lits)))
 
 (defmethod %load-instruction ((mnemonic (eql 'fdefinition)) stream)
   (let ((namei (read-index stream)))
     (dbgprint " (fdefinition ~d)" namei)
-    (setf (next-constant) (fdefinition (constant namei)))))
+    (setf (next-constant) (m:fdefinition m:*client* *environment*
+                                         (constant namei)))))
 
 (defmethod %load-instruction ((mnemonic (eql 'fcell)) stream)
   (let ((fnamei (read-index stream)))
@@ -640,6 +720,7 @@ Did not initialize constants~{ #~d~}"
                            (constant vnamei)))))
 
 (defmethod %load-instruction ((mnemonic (eql 'environment)) stream)
+  (declare (ignore stream))
   (dbgprint " (environment)")
   (setf (next-constant) (m:link-environment m:*client* *environment*)))
 
@@ -662,7 +743,8 @@ Did not initialize constants~{ #~d~}"
 (defmethod %load-instruction ((mnemonic (eql 'find-class)) stream)
   (let ((cni (read-index stream)))
     (dbgprint " (find-class ~d)" cni)
-    (setf (next-constant) (find-class (constant cni)))))
+    (setf (next-constant) (m:find-class m:*client* *environment*
+                                        (constant cni)))))
 
 (defmethod %load-instruction ((mnemonic (eql 'init-object-array)) stream)
   (check-initialization)
@@ -717,10 +799,10 @@ Did not initialize constants~{ #~d~}"
   (when (check-attribute-size mnemonic stream (* 2 *index-bytes*))
     (let ((fun (constant (read-index stream)))
           (name (constant (read-index stream))))
-      ;; constant closure would be weird, but we may as well support it.
-      ;; anything else we silently ignore.
-      (when (typep fun '(or m:bytecode-function m:bytecode-closure))
-        (setf (m:bytecode-function-name fun) name)))))
+      ;; Constant closure would be weird, and we can't set the name of a closure
+      ;; independently from its template, anyway.
+      (when (typep fun 'm:function)
+        (setf (m:name fun) name)))))
 
 (defmethod %load-attribute ((mnemonic (eql 'docstring)) stream)
   (when (check-attribute-size mnemonic stream (* 2 *index-bytes*))
@@ -738,10 +820,8 @@ Did not initialize constants~{ #~d~}"
   (when (check-attribute-size mnemonic stream (* 2 *index-bytes*))
     (let ((fun (constant (read-index stream)))
           (lambda-list (constant (read-index stream))))
-      ;; constant closure would be weird, but we may as well support it.
-      ;; anything else we silently ignore.
-      (when (typep fun '(or m:bytecode-function m:bytecode-closure))
-        (setf (m:bytecode-function-lambda-list fun) lambda-list)))))
+      (when (typep fun 'm:function)
+        (setf (m:lambda-list fun) lambda-list)))))
 
 (defun load-attribute (stream)
   (let ((aname (constant (read-index stream))))

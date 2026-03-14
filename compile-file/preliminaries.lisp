@@ -10,7 +10,24 @@
 ;;; The versioning encompasses both the FASL format itself as well as the
 ;;; bytecode in modules. Changes to bytecode should get a version bump too.
 (defparameter *major-version* 0)
-(defparameter *minor-version* 15)
+(defparameter *minor-version* 16)
+
+;;; Like *compile-file-pathname*, but can be controlled by the user. This
+;;; pathname is by default used in source info, so setting this pathname controls
+;;; what path is used for source info reported and saved by the compiler.
+;;; (*compile-file-pathname* also cannot be used directly because the effect of
+;;;  binding or setting it is undefined.)
+(defparameter *source-pathname* nil)
+
+;;; A representation of the FASL we're compiling into; see cmpltv
+(defvar *coalescence*)
+;;; Another for any CFASL
+(defvar *cfasl-coalescence*)
+
+;;; The client to use for compile time evaluation and CFASLs.
+;;; By default it's just the client provided to compile-file, which is in turn
+;;; just maclina.machine:*client*.
+(defvar *evaluation-client*)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;

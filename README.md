@@ -18,11 +18,11 @@ Before compiling or evaluating code, you need to set the client in order to info
 
 The procedure on CCL is analogous. Or, you can use some other trucler client and environment, such as Trucler's reference implementation.
 
-Now you can compile code with `maclina.compile:compile` and disassemble it with `maclina.machine:disassemble`:
+Now you can compile code with `maclina.compile:compile` and disassemble it with `maclina.introspect:disassemble`:
 
 ```lisp
 (defvar *f* (maclina.compile:compile '(lambda (x) (let ((y 5)) (print y) #'(lambda () (+ y x))))))
-(maclina.machine:disassemble *f*) ; =>
+(maclina.introspect:disassemble *f*) ; =>
 ---module---
   check-arg-count-= 1
   bind-required-args 1

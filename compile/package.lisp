@@ -23,15 +23,20 @@
   (:export #:cfunction #:cfunction-cmodule #:cfunction-nlocals
            #:cfunction-closed #:cfunction-final-entry-point
            #:cfunction-final-size
-	   #:cfunction-name #:cfunction-doc
+	   #:cfunction-name #:cfunction-doc #:cfunction-source
            #:cfunction-lambda-list #:cfunction-lambda-list-p)
   ;; Conditions and compilation unit handling
   (:export #:with-compilation-unit #:with-compilation-results)
   (:export #:compiler-condition #:source)
-  (:export #:unknown-reference #:unknown-variable #:unknown-function
+  (:export #:unknown-reference
+           #:unknown-variable #:unknown-function #:unknown-type
            #:name
            #:unknown-reference-resolution #:resolve-reference
-           #:resolve-function #:resolve-macro
+           #:resolve-function #:resolve-macro #:resolve-type
            #:assumed-function-now-macro)
+  ;; Miscellaneous hooks
+  (:export #:debug-lambda-name #:debug-lambda-list)
+  (:export #:load-map-info)
   ;; PC map info related stuff
-  (:export #:*source-locations*))
+  (:export #:*source-locations* #:*default-source-location*
+           #:form-source-location #:default-source-location))

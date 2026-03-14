@@ -56,10 +56,20 @@
     (find-class 98 sind cnind)
     (init-object-array 99 ub64)
     (environment 100)
-    (fcell-set 101 nameind)
-    (vcell-set 102 nameind)
-    (ccell-set 103 nameind)
+    (make-binary16 102 sind ub16)
+    (make-binary128 103 sind ub128)
     (attribute 255 name nbytes . data)))
+
+(defparameter +di-ops+
+  '(:function 0
+    :vars 1
+    :location 2
+    :decls 3
+    :the 4
+    :block 5
+    :macro 7
+    :if 8
+    :tagbody 9))
 
 ;; how many bytes are needed to represent an index?
 (defvar *index-bytes*)
@@ -72,6 +82,7 @@
         for byte = (ldb (byte 8 i) int)
         do (write-byte byte stream)))
 
+(defun write-b128 (word stream) (write-b word 16 stream))
 (defun write-b64 (word stream) (write-b word 8 stream))
 (defun write-b32 (word stream) (write-b word 4 stream))
 (defun write-b16 (word stream) (write-b word 2 stream))
@@ -83,19 +94,27 @@
   (write-b16 *minor-version* stream))
 
 ;; Used in disltv as well.
-(defun write-bytecode (instructions stream)
-  (let* ((nobjs (count-if (lambda (i) (typep i 'creator)) instructions))
+(defun write-bytecode (fasl-unit stream)
+  (write-bytecode-header (instruction-count fasl-unit) stream)
+  (write-bytecode-instructions fasl-unit stream))
+
+(defun write-bytecode-header (ninstructions stream)
+  (write-magic stream)
+  (write-version stream)
+  (write-b64 ninstructions stream))
+
+;; Write the instructions of the body (and not the header).
+;; This is used in COMPILE-FILES.
+;; Return value undefined.
+(defun write-bytecode-instructions (fasl-unit stream)
+  (assign-indices (instructions fasl-unit))
+  (dbgprint "Instructions:~{~&~a~}" (instructions fasl-unit))
+  (let* ((nobjs (object-count fasl-unit))
          ;; Next highest power of two bytes, roughly
-         (*index-bytes* (ash 1 (1- (ceiling (integer-length nobjs) 8))))
-         ;; 1+ for the init-object-array.
-         (ninsts (1+ (length instructions))))
-    (assign-indices instructions)
-    (dbgprint "Instructions:~{~&~a~}" instructions)
-    (write-magic stream)
-    (write-version stream)
-    (write-b64 ninsts stream)
-    (encode (make-instance 'init-object-array :count nobjs) stream)
-    (map nil (lambda (inst) (encode inst stream)) instructions)))
+         (*index-bytes* (ash 1 (1- (ceiling (integer-length nobjs) 8)))))         
+    (encode (init-object-array fasl-unit) stream)
+    (map nil (lambda (inst) (encode inst stream)) (instructions fasl-unit))
+    (values)))
 
 (defun opcode (mnemonic)
   (let ((inst (assoc mnemonic +ops+ :test #'equal)))
@@ -104,6 +123,12 @@
         (error "unknown mnemonic ~a" mnemonic))))
 
 (defun write-mnemonic (mnemonic stream) (write-byte (opcode mnemonic) stream))
+
+(defun debug-info-opcode (mnemonic)
+  (or (getf +di-ops+ mnemonic) (error "Unknown debug info mnemonic ~a" mnemonic)))
+
+(defun write-debug-info-mnemonic (mnemonic stream)
+  (write-byte (debug-info-opcode mnemonic) stream))
 
 (defun write-index (creator stream)
   (let ((position (index creator)))
@@ -137,8 +162,11 @@
 (defmacro write-sub-byte (array stream nbits)
   (let ((perbyte (floor 8 nbits))
         (a (gensym "ARRAY")) (s (gensym "STREAM")))
-    `(let* ((,a ,array) (,s ,stream) (total-size (array-total-size ,a)))
-       (multiple-value-bind (full-bytes remainder) (floor total-size 8)
+    `(let* ((,a ,array) (,s ,stream)
+            (total-size (if (array-has-fill-pointer-p ,a)
+                            (length ,a)
+                            (array-total-size ,a))))
+       (multiple-value-bind (full-bytes remainder) (floor total-size ,perbyte)
          (loop for byteindex below full-bytes
                for index = (* ,perbyte byteindex)
                for byte = (logior
@@ -148,13 +176,14 @@
                                    collect `(ash ,rma ,shift)))
                do (write-byte byte ,s))
          ;; write remainder
-         (let* ((index (* ,nbits full-bytes))
-                (byte 0))
-           (loop for i below remainder
-                 for shift = (- 8 (* i ,nbits) ,nbits)
-                 for rma = (row-major-aref ,a (+ index i))
-                 do (setf (ldb (byte ,nbits shift) byte) rma))
-           (write-byte byte ,s))))))
+         (unless (zerop remainder)
+           (let* ((index (* ,perbyte full-bytes))
+                  (byte 0))
+             (loop for i below remainder
+                   for shift = (- 8 (* i ,nbits) ,nbits)
+                   for rma = (row-major-aref ,a (+ index i))
+                   do (setf (ldb (byte ,nbits shift) byte) rma))
+             (write-byte byte ,s)))))))
 
 (defun write-utf8 (character-array stream)
   (declare (optimize speed) (type (array character) character-array))
@@ -162,7 +191,9 @@
   ;; This is the case on anything sane, probably. Babel makes the same assumption
   ;; as far as I can tell.
   ;; TODO: There's probably cleverness to be done to make this write faster.
-  (loop for i below (array-total-size character-array)
+  (loop for i below (if (array-has-fill-pointer-p character-array)
+                        (length character-array)
+                        (array-total-size character-array))
 	for char = (row-major-aref character-array i)
 	for cpoint = (char-code char)
 	do (cond ((< cpoint #x80) ; one byte
@@ -190,65 +221,67 @@
 (defmethod encode ((inst array-creator) stream)
   (write-mnemonic 'make-array stream)
   (let* ((et-info (element-type-info inst))
-         (et-type (first et-info))
-         (et-code (second et-info))
          (packing-info (packing-info inst))
          (dims (dimensions inst))
          (packing-type (first packing-info))
          (packing-code (second packing-info)))
-    (write-byte et-code stream)
-    (when (eql et-code +other-uaet+)
-      (write-index et-type stream))
+    (cond ((consp et-info) ;; (element-type-creator +other-uaet+)
+           (write-byte (second et-info) stream)
+           (write-index (first et-info) stream))
+          (t (write-byte et-info stream)))
     (write-byte packing-code stream)
     (write-dimensions dims stream)
     (macrolet ((dump (&rest forms)
                  `(loop with arr = (prototype inst)
-                        for i below (array-total-size arr)
+                        with len = (if (array-has-fill-pointer-p arr)
+                                       (length arr)
+                                       (array-total-size arr))
+                        for i below len
                         for elem = (row-major-aref arr i)
                         do ,@forms)))
-      (cond ((equal packing-type 'nil)) ; just need dims
-            ((equal packing-type 'base-char)
+      (cond ((equal packing-type :nil)) ; just need dims
+            ((equal packing-type :base-char)
              (dump (write-byte (char-code elem) stream)))
-            ((equal packing-type 'character)
+            ((equal packing-type :character)
 	     (write-utf8 (prototype inst) stream))
-            ((equal packing-type 'single-float)
-             (dump (write-b32 (ieee-floats:encode-float32 elem) stream)))
-            ((equal packing-type 'double-float)
-             (dump (write-b64 (ieee-floats:encode-float64 elem) stream)))
-            ((equal packing-type '(complex single-float))
-             (dump (write-b32 (ieee-floats:encode-float32 (realpart elem))
+            ((equal packing-type :binary32)
+             (dump (write-b32 (encode-float32 elem) stream)))
+            ((equal packing-type :binary64)
+             (dump (write-b64 (encode-float64 elem) stream)))
+            ((equal packing-type :complex-binary32)
+             (dump (write-b32 (encode-float32 (realpart elem))
                               stream)
-                   (write-b32 (ieee-floats:encode-float32 (imagpart elem))
+                   (write-b32 (encode-float32 (imagpart elem))
                               stream)))
-            ((equal packing-type '(complex double-float))
-             (dump (write-b64 (ieee-floats:encode-float64 (realpart elem))
+            ((equal packing-type :complex-binary64)
+             (dump (write-b64 (encode-float64 (realpart elem))
                               stream)
-                   (write-b64 (ieee-floats:encode-float64 (imagpart elem))
+                   (write-b64 (encode-float64 (imagpart elem))
                               stream)))
-            ((equal packing-type 'bit)
+            ((equal packing-type :unsigned-byte1)
              (write-sub-byte (prototype inst) stream 1))
-            ((equal packing-type '(unsigned-byte 2))
+            ((equal packing-type :unsigned-byte2)
              (write-sub-byte (prototype inst) stream 2))
-            ((equal packing-type '(unsigned-byte 4))
+            ((equal packing-type :unsigned-byte4)
              (write-sub-byte (prototype inst) stream 4))
-            ((equal packing-type '(unsigned-byte 8))
+            ((equal packing-type :unsigned-byte8)
              (write-sequence (prototype inst) stream))
-            ((equal packing-type '(unsigned-byte 16))
+            ((equal packing-type :unsigned-byte16)
              (dump (write-b16 elem stream)))
-            ((equal packing-type '(unsigned-byte 32))
+            ((equal packing-type :unsigned-byte32)
              (dump (write-b32 elem stream)))
-            ((equal packing-type '(unsigned-byte 64))
+            ((equal packing-type :unsigned-byte64)
              (dump (write-b64 elem stream)))
-            ((equal packing-type '(signed-byte 8))
+            ((equal packing-type :signed-byte8)
              (dump (write-byte (ldb (byte 8 0) elem) stream)))
-            ((equal packing-type '(signed-byte 16))
+            ((equal packing-type :signed-byte16)
              (dump (write-b16 elem stream)))
-            ((equal packing-type '(signed-byte 32))
+            ((equal packing-type :signed-byte32)
              (dump (write-b32 elem stream)))
-            ((equal packing-type '(signed-byte 64))
+            ((equal packing-type :signed-byte64)
              (dump (write-b64 elem stream)))
             ;; TODO: Signed bytes
-            ((equal packing-type 't)) ; handled by initialize-array instruction
+            ((equal packing-type :t)) ; handled by initialize-array instruction
             (t (error "BUG: Unknown packing-type ~s" packing-type))))))
 
 (defmethod encode ((inst initialize-array) stream)
@@ -353,13 +386,75 @@
           for word = (ldb (byte 64 pos) anumber)
           do (write-b64 word stream))))
 
+;;; Adapted from the IEEE-floats library (Marijn Haverbeke)
+;;; Unlike that library, we map implementation float types
+;;; to IEEE formats as follows:
+;;; shorts = binary16
+;;; singles = binary32
+;;; doubles = binary64
+;;; longs = binary128
+;;; So we encode singles as binary32 (for example) and decode binary32 to
+;;; single floats when loading.
+;;; If the implementation merges some types we do too, so e.g. if
+;;; short = single, we treat shorts as singles and so they must fit in binary32.
+;;; This merging is handled by the ADD-CONSTANT method on FLOAT.
+;;; If the implementation has bigger floats, and we try to encode those
+;;; into a FASL, we signal an error. I think this is only possible on
+;;; Clisp, which has arbitrary-precision long floats.
+;;; An implementation having smaller floats is irrelevant. E.g. if long
+;;; floats are the "extended precision" 80 bit format, we just encode them
+;;; as binary128 anyway. I'm not sure if this round trips perfectly! FIXME?
+;;; Seems to work with Clasp's 80 bit floats.
+;;; Also FIXME, we do not support NaN and infinity. This would require
+;;; implementation hooks. Shinmera's float-features is probably good, but
+;;; even if we use it I'd like to keep these more portable encoders and
+;;; decoders in case implementations have weird widths.
+(macrolet ((define-encoder (encoder type exponent-bits significand-bits)
+             (let* ((total-bits (+ 1 exponent-bits significand-bits))
+	            (exponent-offset (1- (expt 2 (1- exponent-bits))))
+	            (sign-part `(ldb (byte 1 ,(1- total-bits)) bits))
+	            (exponent-part `(ldb (byte ,exponent-bits ,significand-bits) bits))
+	            (significand-part `(ldb (byte ,significand-bits 0) bits)))
+               `(progn
+                  (defun ,encoder (float)
+	            (declare (type ,type float))
+                    (multiple-value-bind (sign significand exponent)
+                        (multiple-value-bind (significand exponent sign) (decode-float float)
+                          (let ((exponent (if (= 0 significand)
+                                              exponent
+                                              (+ (1- exponent) ,exponent-offset)))
+                                (sign (if (= sign 1.0) 0 1)))
+                            (unless (< exponent ,(expt 2 exponent-bits))
+                              (error "Floating point overflow when encoding ~A." float))
+                            (if (<= exponent 0)
+                                (values sign (ash (round (* ,(expt 2 significand-bits) significand)) exponent) 0)
+                                (values sign (round (* ,(expt 2 significand-bits) (1- (* significand 2)))) exponent))))
+	              (let ((bits 0))
+	                (declare (type (unsigned-byte ,total-bits) bits))
+	                (setf ,sign-part sign
+		              ,exponent-part exponent
+		              ,significand-part significand)
+	                bits)))))))
+  (define-encoder encode-float16 short-float 5 10)
+  (define-encoder encode-float32 single-float 8 23)
+  (define-encoder encode-float64 double-float 11 52)
+  (define-encoder encode-float128 long-float 15 112))
+
+(defmethod encode ((inst short-float-creator) stream)
+  (write-mnemonic 'make-binary16 stream)
+  (write-b16 (encode-float16 (prototype inst)) stream))
+
 (defmethod encode ((inst single-float-creator) stream)
   (write-mnemonic 'make-single-float stream)
-  (write-b32 (ieee-floats:encode-float32 (prototype inst)) stream))
+  (write-b32 (encode-float32 (prototype inst)) stream))
 
 (defmethod encode ((inst double-float-creator) stream)
   (write-mnemonic 'make-double-float stream)
-  (write-b64 (ieee-floats:encode-float64 (prototype inst)) stream))
+  (write-b64 (encode-float64 (prototype inst)) stream))
+
+(defmethod encode ((inst long-float-creator) stream)
+  (write-mnemonic 'make-binary128 stream)
+  (write-b128 (encode-float128 (prototype inst)) stream))
 
 (defmethod encode ((inst ratio-creator) stream)
   (write-mnemonic 'ratio stream)
@@ -463,6 +558,133 @@
   (write-b32 (+ *index-bytes* *index-bytes*) stream)
   (write-index (ll-function attr) stream)
   (write-index (lambda-list attr) stream))
+
+(defmethod encode ((attr function-native-attr) stream)
+  (write-b32 (* *index-bytes* 2 (* (length (indices attr)) 2)) stream)
+  (write-index (ll-function attr) stream)
+  (write-b16 (module-id attr) stream)
+  (loop for index in (indices attr)
+        do (write-b16 index stream)))
+
+(defmethod encode ((attr spi-attr) stream)
+  ;; Write the length.
+  (write-b32 (+ *index-bytes* *index-bytes* 8 8 8) stream)
+  ;; And the data.
+  (write-index (spi-attr-function attr) stream)
+  (write-index (spi-attr-pathname attr) stream)
+  (write-b64 (lineno attr) stream)
+  (write-b64 (column attr) stream)
+  (write-b64 (filepos attr) stream))
+
+(defmethod encode ((attr module-native-attr) stream)
+  (let ((code (code attr))
+        (lits (literals attr)))
+    (write-b32 (+ *index-bytes* 4 (length code) 2 (* *index-bytes* (length lits)))
+               stream)
+    (write-index (module attr) stream)
+    (write-b32 (length code) stream)
+    (write-sequence code stream)
+    (write-b16 (length lits) stream)
+    (loop for creator across lits
+          do (write-index creator stream))))
+
+;;;
+
+(defgeneric info-length (debug-info))
+
+(defmethod encode ((attr module-debug-attr) stream)
+  (write-b32 (+ *index-bytes* 4 (reduce #'+ (infos attr) :key #'info-length))
+             stream)
+  (write-index (module attr) stream)
+  (let ((infos (infos attr)))
+    (write-b32 (length infos) stream)
+    (map nil (lambda (info) (encode info stream)) infos)))
+
+(defmethod encode ((info debug-info-function) stream)
+  (write-debug-info-mnemonic :function stream)
+  (write-index (di-function info) stream))
+(defmethod info-length ((info debug-info-function))
+  (+ 1 *index-bytes*))
+
+(defmethod encode ((info debug-info-declarations) stream)
+  (write-debug-info-mnemonic :declarations stream)
+  (write-b32 (start info) stream)
+  (write-b32 (end info) stream)
+  (write-index (declarations info) stream))
+(defmethod info-length ((info debug-info-declarations))
+  (+ 1 4 4 *index-bytes*))
+
+(defmethod encode ((info debug-info-the) stream)
+  (write-debug-info-mnemonic :the stream)
+  (write-b32 (start info) stream)
+  (write-b32 (end info) stream)
+  (write-index (the-type info) stream)
+  (write-b32 (receiving info) stream))
+(defmethod info-length ((info debug-info-the))
+  (+ 1 4 4 *index-bytes* 4))
+
+(defmethod encode ((info debug-info-if) stream)
+  (write-debug-info-mnemonic :if stream)
+  (write-b32 (start info) stream)
+  (write-b32 (end info) stream)
+  (write-b32 (receiving info) stream))
+(defmethod info-length ((info debug-info-if))
+  (+ 1 4 4 4))
+
+(defmethod encode ((info debug-info-tagbody) stream)
+  (write-debug-info-mnemonic :tagbody stream)
+  (write-b32 (start info) stream)
+  (write-b32 (end info) stream)
+  (write-b16 (length (tags info)) stream)
+  (loop for (tag . ip) in (tags info)
+        do (write-index tag stream)
+           (write-b32 ip stream)))
+(defmethod info-length ((info debug-info-tagbody))
+  (+ 1 4 4 2 (* (length (tags info)) (+ *index-bytes* 4))))
+
+(defmethod encode ((info debug-info-block) stream)
+  (write-debug-info-mnemonic :block stream)
+  (write-b32 (start info) stream)
+  (write-b32 (end info) stream)
+  (write-index (name info) stream)
+  (write-b32 (receiving info) stream))
+(defmethod info-length ((info debug-info-block))
+  (+ 1 4 4 *index-bytes* 4))
+
+;;; Compute the FLAGS byte for a bytecode-debug-var.
+;;; This is 00NNDIIC: C = cellp, D = dynamic-extent-p,
+;;; NN = 01 for inline, 10 for notinline, 00 for default
+;;; II = 01 for ignore, 10 for ignorable, 00 for default
+(defun bdv-flags (bdv)
+  (let ((result 0))
+    (setf (ldb (byte 2 4) result)
+          (ecase (di-inline bdv) (cl:inline #b01) (cl:notinline #b10) ((nil) #b00))
+          (ldb (byte 1 3) result)
+          (if (dynamic-extent-p bdv) #b1 #b0)
+          (ldb (byte 2 1) result)
+          (ecase (di-ignore bdv) (cl:ignore #b01) (cl:ignorable #b10) ((nil) #b00))
+          (ldb (byte 1 0) result)
+          (if (cellp bdv) #b1 #b0))
+    result))
+
+(defmethod encode ((info debug-info-vars) stream)
+  (write-debug-info-mnemonic :vars stream)
+  (write-b32 (start info) stream)
+  (write-b32 (end info) stream)
+  (let ((vars (vars info)))
+    (write-b16 (length vars) stream)
+    (loop for var in vars
+          do (write-index (name var) stream)
+             (write-b16 (frame-index var) stream)
+             (write-byte (bdv-flags var) stream)
+             (write-b16 (length (declarations var)) stream)
+             (loop for decl in (declarations var)
+                   do (write-index decl stream)))))
+(defmethod info-length ((info debug-info-vars))
+  (+ 1 4 4 2
+     (loop for var in (vars info)
+           sum (+ *index-bytes* 2 1 2)
+           sum (* *index-bytes* (length (declarations var))))))
 
 ;;;
 

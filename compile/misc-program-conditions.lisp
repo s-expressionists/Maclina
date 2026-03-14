@@ -126,6 +126,12 @@
              (format stream "Declarations are not a proper list: ~s"
                      (declarations condition)))))
 
+(define-condition illegal-combination (compiler-program-error)
+  ((%form :initarg :form :reader form))
+  (:report (lambda (condition stream)
+             (format stream "In form ~s, the CAR is not a symbol or lambda expression"
+                     (form condition)))))
+
 ;;; Used at compile time, so they are program-conditions
 ;;; and have a SOURCE slot.
 (define-condition wrong-number-of-arguments (compiler-program-error

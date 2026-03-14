@@ -17,14 +17,14 @@
           (gethash add2 sources) 9)
     (let* ((maclina.compile:*source-locations* sources)
            (f (ccompile nil `(lambda (x y z) ,add2)))
-           (mod (maclina.machine:bytecode-function-module f))
+           (mod (maclina.machine:module f))
            (outerp nil) (innerp nil))
       ;; Weird state machine. We want :before :add2 :add :add2-after :after,
       ;; except these can be abbreviated (if sources begin or end simultaneously).
       (loop with state = :before
             with success = t
-            for pc below (length (maclina.machine:bytecode-module-bytecode mod))
-            for source = (maclina.machine:source-at mod pc)
+            for pc below (length (maclina.machine:bytecode mod))
+            for source = (maclina.introspect:source-at mod pc)
             do (case source
                  ((nil)
                   (case state
@@ -59,6 +59,6 @@
 
 (5am:test pc-map.function
   (let* ((fun (ccompile nil '(lambda (x) x)))
-         (mod (maclina.machine:bytecode-function-module fun))
-         (entry (maclina.machine:bytecode-function-entry-pc fun)))
-    (5am:is (eql fun (maclina.machine:function-at mod entry)))))
+         (mod (maclina.machine:module fun))
+         (entry (maclina.machine:entry-pc fun)))
+    (5am:is (eql fun (maclina.introspect:function-at mod entry)))))

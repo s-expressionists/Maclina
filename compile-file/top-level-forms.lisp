@@ -5,6 +5,17 @@
 ;;; For dumping, it will call back into the rest of the file compiler via
 ;;; COMPILE-FILE-FORM.
 
+;;; Evaluate a form at compile time. If we're building a CFASL, dump it
+;;; in there as well.
+(defun ct-eval (form env)
+  (let ((m:*client* *evaluation-client*))
+    ;; This does a little extra work when building a CFASL - in general
+    ;; compiling the form twice. That's unfortunate but the upside is we
+    ;; get all the special handling in add-initializer-form.
+    (when *cfasl-coalescence*
+      (compile-file-form form env *cfasl-coalescence*))
+    (cmp:eval form env)))
+
 (defvar *compile-time-too*)
 
 (defun compile-toplevel-progn (forms env)
@@ -29,7 +40,8 @@
              (compile-toplevel-progn forms env)))
           ((or (and ct (not lt)) (and (not ct) (not lt) e ctt))
            ;; evaluate
-           (cmp:eval-progn forms env))
+           (dolist (form forms)
+             (ct-eval form env)))
           (t
            ;; (or (and (not ct) (not lt) e (not ctt)) (and (not ct) (not lt) (not e)))
            ;; discard
@@ -74,8 +86,8 @@
           ((symbol-macrolet)
            (compile-toplevel-symbol-macrolet (cadr form) (cddr form) env))
           (otherwise
-           (when *compile-time-too* (cmp:eval form env))
+           (when *compile-time-too* (ct-eval form env))
            (compile-file-form form env)))
         (progn
-          (when *compile-time-too* (cmp:eval form env))
+          (when *compile-time-too* (ct-eval form env))
           (compile-file-form form env)))))
