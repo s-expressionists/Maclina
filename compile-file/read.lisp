@@ -88,7 +88,10 @@
                        (t (find-package-or-err m:*client* *environment*
                                                package-indicator)))))
         (if internp
-            (intern symbol-name package)
+            (let (;; overcome any package lock.
+                  (*package* (eclector.reader:state-value
+                              client '*package*)))
+              (intern symbol-name package))
             (multiple-value-bind (symbol status)
                 (find-symbol symbol-name package)
               (ecase status
