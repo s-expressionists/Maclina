@@ -96,11 +96,9 @@
   env)
 
 (defun var-info (name env)
-  (or (cdr (assoc name (vars env)))
-      (trucler:describe-variable m:*client* (global-environment env) name)))
+  (trucler:describe-variable m:*client* env name))
 (defun fun-info (name env)
-  (or (cdr (assoc name (funs env) :test #'equal))
-      (trucler:describe-function m:*client* (global-environment env) name)))
+  (trucler:describe-function m:*client* env name))
 
 ;;; Our info for lexical bindings (variable and function).
 (defstruct (lexical-info
