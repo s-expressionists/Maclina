@@ -7,13 +7,13 @@
                                     (global-environment))
                                 (:constructor %make-lexical-environment)
                                 (:conc-name nil))
-  ;; An alist of (var . lvar-desc) in the current environment.
+  ;; An list of variable-descriptions in the current environment.
   (vars nil :type list :read-only t)
   ;; An alist of (tag dynenv-desc . label) in the current environment.
   (tags nil :type list :read-only t)
   ;; An alist of (block block-dynenv . label) in the current environment.
   (blocks nil :type list :read-only t)
-  ;; An alist of (fun . lfun-desc) in the current environment.
+  ;; An list of operator-descriptions in the current environment.
   (funs nil :type list :read-only t)
   ;; Global environment, which we just pass to Trucler.
   (global-environment (missing-arg) :read-only t))
@@ -47,12 +47,12 @@
 
 (defmethod trucler:describe-variable
     (client (env lexical-environment) name)
-  (or (cdr (assoc name (vars env)))
+  (or (find name (vars env) :key #'trucler:name)
       (trucler:describe-variable client (global-environment env) name)))
 
 (defmethod trucler:describe-function
     (client (env lexical-environment) name)
-  (or (cdr (assoc name (funs env) :test #'equal))
+  (or (find name (funs env) :key #'trucler:name :test #'equal)
       (trucler:describe-function client (global-environment env) name)))
 
 (defmethod trucler:describe-block

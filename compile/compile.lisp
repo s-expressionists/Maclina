@@ -670,11 +670,10 @@
     (do ((index frame-start (1+ index))
          (vars vars (rest vars))
          (new-vars (vars env)
-                   (acons (first vars)
-                          (make-lexical-variable
-                           (first vars) index function
-                           :ignore (binding-ignore (first vars) declarations))
-                          new-vars)))
+                   (cons (make-lexical-variable
+                          (first vars) index function
+                          :ignore (binding-ignore (first vars) declarations))
+                         new-vars)))
         ((>= index frame-end)
          (values (make-lexical-environment env :vars new-vars)
                  (new-context context :frame-end frame-end)))
@@ -691,12 +690,11 @@
     (do ((index frame-start (1+ index))
          (funs funs (rest funs))
          (new-vars (funs env)
-                   (acons (first funs)
-                          (make-local-function
-                           (first funs) index function
-                           :ignore (binding-ignore `(function ,(first funs))
-                                                   declarations))
-                          new-vars)))
+                   (cons (make-local-function
+                          (first funs) index function
+                          :ignore (binding-ignore `(function ,(first funs))
+                                                  declarations))
+                         new-vars)))
         ((>= index frame-end)
          (values (make-lexical-environment env :funs new-vars)
                  (new-context context :frame-end frame-end))))))
@@ -1015,9 +1013,8 @@
           for specialp
             = (typep desc 'trucler:special-variable-description)
           unless specialp ; already covered
-            do (push (cons var (make-instance
-                                   'trucler:local-special-variable-description
-                                 :name var))
+            do (push (make-instance 'trucler:local-special-variable-description
+                       :name var)
                      new-vars))
     (if (eq new-vars existing) ; nothing added
         env
@@ -1110,23 +1107,22 @@
                            :source (expr-source-location
                                     binding (context-source context))))
                   (compile-form valf env valc)
-                  (cons var
-                        (cond
-                          ((globally-special-p var env)
-                           (incf special-binding-count)
-                           (make-instance 'trucler:global-special-variable-description
-                             :name var))
-                          ((member var specials)
-                           (incf special-binding-count)
-                           (make-instance 'trucler:local-special-variable-description
-                             :name var))
-                          (t ; lexical
-                           (let ((lex (make-lexical-variable
-                                       var frame-end cf
-                                       :ignore (binding-ignore var decls))))
-                             (incf frame-end)
-                             (maybe-emit-make-cell lex context)
-                             lex)))))
+                  (cond
+                    ((globally-special-p var env)
+                     (incf special-binding-count)
+                     (make-instance 'trucler:global-special-variable-description
+                       :name var))
+                    ((member var specials)
+                     (incf special-binding-count)
+                     (make-instance 'trucler:local-special-variable-description
+                       :name var))
+                    (t ; lexical
+                     (let ((lex (make-lexical-variable
+                                 var frame-end cf
+                                 :ignore (binding-ignore var decls))))
+                       (incf frame-end)
+                       (maybe-emit-make-cell lex context)
+                       lex))))
                 new-bindings))
         ;; That out of the way, we construct the environment and context
         ;; for the body.
@@ -1144,7 +1140,7 @@
           ;; We bind the most recently pushed values first, so in reverse order,
           ;; which of course isn't actually visible in Lisp.
           (loop with nlex = 0
-                for (name . info) in new-bindings
+                for info in new-bindings
                 if (typep info 'trucler:lexical-variable-description)
                   do (incf nlex) (push info lexinfos)
                 else ; special
@@ -1154,7 +1150,7 @@
                        (emit-bind post-binding-context nlex new-frame-end)
                        (setf frame-end new-frame-end nlex 0)))
                    ;; now the special.
-                   (emit-special-bind post-binding-context name)
+                   (emit-special-bind post-binding-context (trucler:name info))
                 finally ; and the last special binding.
                         (when (plusp nlex)
                           (emit-bind post-binding-context nlex
@@ -1688,7 +1684,7 @@
                                      :name name
                                      :source (expr-source-location
                                               binding (context-source context))))
-                            (cons name (make-symbol-macro name expansion))))))
+                            (make-symbol-macro name expansion)))))
       (compile-locally body (make-lexical-environment
                              env
                              :vars (append (nreverse smacros) (vars env)))
@@ -1704,13 +1700,13 @@
   ;; instead. So: FIXME.
   (make-lexical-environment
    env
-   :vars (loop for pair in (vars env)
-               when (typep (cdr pair) '(or trucler:constant-variable-description
-                                        trucler:symbol-macro-description))
-                 collect pair)
-   :funs (loop for pair in (funs env)
-               when (typep (cdr pair) 'trucler:macro-description)
-                 collect pair)
+   :vars (loop for desc in (vars env)
+               when (typep desc '(or trucler:constant-variable-description
+                                  trucler:symbol-macro-description))
+                 collect desc)
+   :funs (loop for desc in (funs env)
+               when (typep desc 'trucler:macro-description)
+                 collect desc)
    :tags nil :blocks nil))
 
 ;;; Given the arguments to parse-macro, return a macroexpander,
@@ -1745,10 +1741,9 @@
                             (unless (symbolp name)
                               (error 'macro-not-symbol
                                      :name name :source source))
-                            (let* ((macrof (compute-macroexpander
-                                            name lambda-list body env source))
-                                   (info (make-local-macro name macrof)))
-                              (cons name info))))))
+                            (let ((macrof (compute-macroexpander
+                                            name lambda-list body env source)))
+                              (make-local-macro name macrof))))))
       (compile-locally body (make-lexical-environment
                              env :funs (append macros (funs env)))
                        context))))
