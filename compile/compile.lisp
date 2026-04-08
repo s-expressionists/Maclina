@@ -495,6 +495,153 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
+;;; Declarations
+;;;
+
+;;; Process a declaration into what variables and/or functions it applies to.
+;;; Returns three values:
+;;; 1) A list (symbol key value) of variable declarations
+;;; 2) A list (function-name key value) of function declarations
+;;; 3) A list (key . value) of other declarations
+;;; SYMBOL and FUNCTION-NAME are what the declaration applies to.
+;;; KEY is generally the declaration identifier (e.g. SPECIAL, TYPE)
+;;; and VALUE is what information is associated with that key.
+;;; In the case of boolean declarations (SPECIAL, DX) the value is
+;;; treated as a generalized boolean.
+(defgeneric process-declaration (client environment
+                                 declaration-identifier declaration))
+
+(defmethod process-declaration (client env (id (eql 'cl:declaration)) decl)
+  (declare (ignore client env))
+  ;;(warn ...)
+  (values nil nil nil))
+
+(defun process-binding-declaration (declaration-data key value)
+  (unless (listp declaration-data)
+    ;;(warn ...)
+    (return-from process-binding-declaration (values nil nil nil)))
+  (loop for cdata on declaration-data
+        for binding = (car cdata)
+        if (symbolp binding)
+          collect (list binding key value) into vars
+        else if (and (consp binding) (consp (cdr binding))
+                  (null (cddr binding))
+                  (eq (car binding) 'cl:function))
+               collect (list (second binding) key value) into funs
+        #|else
+          do (warn ...)|#
+        #|unless (listp (cdr cdata))
+          do (warn ...)|#
+        finally (return (values vars funs nil))))
+
+(defun process-variable-declaration (declaration-data key value)
+  (unless (listp declaration-data)
+    ;;(warn ...)
+    (return-from process-variable-declaration (values nil nil nil)))
+  (loop for cdata on declaration-data
+        for binding = (car cdata)
+        if (symbolp binding)
+          collect (list binding key value) into vars
+        #|else
+          do (warn ...)
+        unless (listp (cdr cdata))
+          do (warn ...)|#
+        finally (return (values vars nil nil))))
+
+(defun process-function-declaration (declaration-data key value)
+  (unless (listp declaration-data)
+    ;;(warn ...)
+    (return-from process-function-declaration (values nil nil nil)))
+  (loop for cdata on declaration-data
+        for binding = (car cdata)
+        if (symbolp binding)
+          collect (list binding key value) into funs
+        #|else
+          do (warn ...)
+        unless (listp (cdr cdata))
+          do (warn ...)|#
+        finally (return (values nil funs nil))))
+
+(defmethod process-declaration (client env (id (eql 'cl:dynamic-extent)) decl)
+  (declare (ignore client env))
+  (process-binding-declaration (cdr decl) id id))
+
+(defmethod process-declaration (client env (id (eql 'cl:ftype)) decl)
+  (declare (ignore client env))
+  (unless (consp (cdr decl))
+    ;;(warn ...)
+    (return-from process-declaration (values nil nil nil)))
+  (process-function-declaration (cddr decl) id (second decl)))
+
+(defmethod process-declaration (client env (id (eql 'cl:ignorable)) decl)
+  (declare (ignore client env))
+  (process-binding-declaration (cdr decl) 'cl:ignore id))
+(defmethod process-declaration (client env
+                                (id (eql 'cl:ignore)) decl)
+  (declare (ignore client env))
+  (process-binding-declaration (cdr decl) 'cl:ignore id))
+
+(defmethod process-declaration (client env (id (eql 'cl:inline)) decl)
+  (declare (ignore client env))
+  (process-function-declaration (cdr decl) 'cl:inline id))
+(defmethod process-declaration (client env (id (eql 'cl:notinline)) decl)
+  (declare (ignore client env))
+  (process-function-declaration (cdr decl) 'cl:inline id))
+
+(defmethod process-declaration (client env (id (eql 'cl:optimize)) decl)
+  (declare (ignore client env))
+  (values nil nil (list decl)))
+
+(defmethod process-declaration (client env (id (eql 'cl:special)) decl)
+  (declare (ignore client env))
+  (process-variable-declaration (cdr decl) id id))
+
+(defmethod process-declaration (client env (id (eql 'cl:type)) decl)
+  (declare (ignore client env))
+  (unless (consp (cdr decl))
+    ;;(warn ...)
+    (return-from process-declaration (values nil nil nil)))
+  (process-variable-declaration (cddr decl) id (second decl)))
+
+(defmethod process-declaration (client env id decl)
+  (let (;; declarations defined with (DECLAIM (DECLARATION ...))
+        (known (trucler:declarations
+                (trucler:describe-declarations client env))))
+    (if (member id known)
+        (values nil nil decl)
+        ;; must be a type (CLHS 3.3.3.1)
+        ;; FIXME: see if it's actually defined as a type.
+        (process-variable-declaration (cdr decl) 'cl:type id))))
+
+(defun process-declarations (client env declarations)
+  (cond ((consp declarations)
+         (loop with vars = nil with funs = nil with other = nil
+               for cdecls on declarations
+               for decl = (car cdecls)
+               if (consp decl)
+                 do (multiple-value-bind (v f o)
+                        (process-declaration client env (car decl) decl)
+                      (loop for (binding-name key value) in v
+                            do (push (cons key value)
+                                     (alexandria:assoc-value
+                                      vars binding-name)))
+                      (loop for (binding-name key value) in f
+                            do (push (cons key value)
+                                     (alexandria:assoc-value
+                                      funs binding-name
+                                      :test #'equal)))
+                      (setf other (append o other)))
+               #|else do (warn ...)
+               unless (listp (cdr cdecls))
+                 do (warn ...)|#
+               finally (return (values vars funs other))))
+        ((null declarations) (values nil nil nil))
+        (t
+         ;;(warn ...)
+         (values nil nil nil))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
 ;;; Environments (mostly in environment.lisp)
 ;;;
 

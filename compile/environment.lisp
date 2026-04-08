@@ -145,27 +145,31 @@
 (defun indirect-lexical-p (lvar)
   (and (closed-over-p lvar) (setp lvar)))
 
-(defun make-lexical-variable (name frame-offset cfunction &key ignore)
+(defun make-lexical-variable (name frame-offset cfunction
+                              &key ignore (type t) dynamic-extent)
   (make-instance 'trucler:lexical-variable-description
     :name name
     :identity (make-lexical-variable-info frame-offset cfunction)
-    :ignore ignore))
+    :ignore ignore :type type :dynamic-extent dynamic-extent))
 
-(defun make-symbol-macro (name expansion)
+(defun make-symbol-macro (name expansion &key ignore (type t))
   (make-instance 'trucler:symbol-macro-description
-    :name name :expansion expansion))
+    :name name :expansion expansion :ignore ignore :type type))
 
 (defun globally-special-p (symbol env)
   (typep (var-info symbol env) 'trucler:global-special-variable-description))
 
-(defun make-local-function (name frame-offset cfunction &key ignore)
+(defun make-local-function (name frame-offset cfunction
+                            &key ignore (type t) dynamic-extent
+                              inline inline-data)
   (make-instance 'trucler:local-function-description
-    :name name :ignore ignore
+    :name name :ignore ignore :type type :dynamic-extent dynamic-extent
+    :inline inline :inline-data inline-data
     :identity (make-lexical-info frame-offset cfunction)))
 
-(defun make-local-macro (name expander)
+(defun make-local-macro (name expander &key ignore)
   (make-instance 'trucler:local-macro-description
-    :name name :expander expander))
+    :name name :expander expander :ignore ignore))
 
 (defun add-macros (env macros)
   (make-lexical-environment env :funs (append macros (funs env))))
