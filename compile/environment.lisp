@@ -9,11 +9,11 @@
                                 (:conc-name nil))
   ;; An list of variable-descriptions in the current environment.
   (vars nil :type list :read-only t)
-  ;; An alist of (tag dynenv-desc . label) in the current environment.
+  ;; A list of tag descriptions in the current environment.
   (tags nil :type list :read-only t)
-  ;; An alist of (block block-dynenv . label) in the current environment.
+  ;; A list of block descriptions in the current environment.
   (blocks nil :type list :read-only t)
-  ;; An list of operator-descriptions in the current environment.
+  ;; A list of operator-descriptions in the current environment.
   (funs nil :type list :read-only t)
   ;; Global environment, which we just pass to Trucler.
   (global-environment (missing-arg) :read-only t))
@@ -58,12 +58,12 @@
 (defmethod trucler:describe-block
     (client (env lexical-environment) name)
   (declare (ignore client))
-  (cdr (assoc name (blocks env))))
+  (find name (blocks env) :key #'trucler:name))
 
 (defmethod trucler:describe-tag
     (client (env lexical-environment) name)
   (declare (ignore client))
-  (cdr (assoc name (tags env))))
+  (find name (tags env) :key #'trucler:name))
 
 (defmethod trucler:add-local-special-variable
     (client (env lexical-environment) name)
@@ -99,34 +99,55 @@
   (trucler:describe-variable m:*client* env name))
 (defun fun-info (name env)
   (trucler:describe-function m:*client* env name))
+(defun block-info (name env)
+  (trucler:describe-block m:*client* env name))
+(defun tag-info (name env)
+  (trucler:describe-tag m:*client* env name))
 
-;;; Our info for lexical bindings (variable and function).
+;;; Our info for lexical bindings (variable, function, block, tagbody).
 (defstruct (lexical-info
             (:constructor make-lexical-info (frame-offset cfunction)))
   ;; Register index for this lvar.
   (frame-offset (missing-arg) :read-only t :type (integer 0))
   ;; Cfunction this lvar belongs to (i.e. is bound by)
-  (cfunction (missing-arg) :read-only t :type cfunction)
+  (cfunction (missing-arg) :read-only t :type cfunction))
+
+;;; For variables and functions, where we want to note unused bindings.
+(defstruct (ignorable-lexical-info
+            (:constructor make-ignorable-lexical-info (frame-offset cfunction))
+            (:include lexical-info))
   ;; Has the variable been read (for cl:ignore tracking).
   (readp nil :type boolean))
 
 ;;; Our info for specifically variable bindings.
 ;;; (while function bindings can be closed over, they can't be modified,
-;;;  so we don't really care.)
+;;;  so we don't need to worry about cells, and thus closed-over-p is unneeded.)
 (defstruct (lexical-variable-info
             (:constructor make-lexical-variable-info (frame-offset cfunction))
-            (:include lexical-info))
+            (:include ignorable-lexical-info))
   (closed-over-p nil :type boolean)
   (setp nil :type boolean))
+
+;;; Info for blocks and tagbody, where we don't want to note unusedness,
+;;; but do need to track if they're closed over.
+(defstruct (lexical-exit-info
+            (:constructor make-lexical-exit-info (frame-offset cfunction))
+            (:include lexical-info))
+  (closed-over-p nil :type boolean))
+
+(defstruct (lexical-destination
+            (:constructor make-lexical-destination (exit-info label)))
+  (exit-info (missing-arg) :type lexical-exit-info)
+  (label (missing-arg)))
 
 (defun frame-offset (lex-desc)
   (lexical-info-frame-offset (trucler:identity lex-desc)))
 (defun lvar-cfunction (lex-desc)
   (lexical-info-cfunction (trucler:identity lex-desc)))
 (defun lvar-readp (lex-desc)
-  (lexical-info-readp (trucler:identity lex-desc)))
+  (ignorable-lexical-info-readp (trucler:identity lex-desc)))
 (defun (setf lvar-readp) (new lex-desc)
-  (setf (lexical-info-readp (trucler:identity lex-desc)) new))
+  (setf (ignorable-lexical-info-readp (trucler:identity lex-desc)) new))
 
 (defun closed-over-p (lvar-desc)
   (lexical-variable-info-closed-over-p (trucler:identity lvar-desc)))
@@ -144,6 +165,17 @@
 ;;; Does the lexical variable need a cell?
 (defun indirect-lexical-p (lvar)
   (and (closed-over-p lvar) (setp lvar)))
+
+(defun make-block (name frame-offset cfunction label)
+  (make-instance 'trucler:block-description
+    :name name
+    :identity (make-lexical-destination
+               (make-lexical-exit-info frame-offset cfunction)
+               label)))
+(defun make-tag (name exit-info label)
+  (make-instance 'trucler:tag-description
+    :name name
+    :identity (make-lexical-destination exit-info label)))
 
 (defun make-lexical-variable (name frame-offset cfunction
                               &key ignore (type t) dynamic-extent)
@@ -165,7 +197,7 @@
   (make-instance 'trucler:local-function-description
     :name name :ignore ignore :type type :dynamic-extent dynamic-extent
     :inline inline :inline-data inline-data
-    :identity (make-lexical-info frame-offset cfunction)))
+    :identity (make-ignorable-lexical-info frame-offset cfunction)))
 
 (defun make-local-macro (name expander &key ignore)
   (make-instance 'trucler:local-macro-description

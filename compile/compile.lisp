@@ -104,10 +104,8 @@
   ;; either a nonnegative integer, meaning that many values, or -1, meaning all
   receiving
   ;; A list of lexical variable infos and symbols. :special means a special
-  ;; variable binding is in place, while a lexical variable info is the variable
-  ;; for a tagbody or block dynenv. :catch means a catch.
-  ;; Note that the symbol may not be the special variable in question, since
-  ;; we don't really need that information.
+  ;; variable binding is in place, a lexical-exit-info means a block or tagbody,
+  ;; and :catch means a catch.
   ;; Since this is only used for exits, it may not include specials bound by
   ;; a function's lambda list.
   (dynenv nil)
@@ -451,47 +449,47 @@
 
 (defun constant-resizer (n) (lambda (fixup) (declare (ignore fixup)) n))
 
-(defun emit-entry-or-save-sp (context dynenv-info)
-  (let ((index (frame-offset dynenv-info)))
+(defun emit-entry-or-save-sp (context exit-info)
+  (let ((index (lexical-info-frame-offset exit-info)))
     (flet ((emitter (fixup position code)
              (declare (ignore fixup))
-             (if (closed-over-p dynenv-info)
+             (if (lexical-exit-info-closed-over-p exit-info)
                  (assemble-into code position m:entry index)
                  (assemble-into code position m:save-sp index)))
            (resizer (fixup)
              (declare (ignore fixup))
              (if (< index #.(ash 1 8)) 2 4)))
-      (emit-fixup context (make-fixup dynenv-info 2 #'emitter #'resizer)))))
+      (emit-fixup context (make-fixup exit-info 2 #'emitter #'resizer)))))
 
-(defun emit-ref-or-restore-sp (context dynenv-info)
-  (let ((index (frame-offset dynenv-info)))
+(defun emit-ref-or-restore-sp (context exit-info)
+  (let ((index (lexical-info-frame-offset exit-info)))
     (flet ((emitter (fixup position code)
              (declare (ignore fixup))
-             (if (closed-over-p dynenv-info)
+             (if (lexical-exit-info-closed-over-p exit-info)
                  (assemble-into code position m:ref index)
                  (assemble-into code position m:restore-sp index)))
            (resizer (fixup)
              (declare (ignore fixup))
              (if (< index #.(ash 1 8)) 2 4)))
-      (emit-fixup context (make-fixup dynenv-info 2 #'emitter #'resizer)))))
+      (emit-fixup context (make-fixup exit-info 2 #'emitter #'resizer)))))
 
-(defun emit-exit-or-jump (context dynenv-info label)
+(defun emit-exit-or-jump (context exit-info label)
   (flet ((emitter (fixup position code)
-           (if (closed-over-p dynenv-info)
+           (if (lexical-exit-info-closed-over-p exit-info)
                (control+label-emitter fixup position code
                                       m:exit-8 m:exit-16 m:exit-24)
                (control+label-emitter fixup position code
                                       m:jump-8 m:jump-16 m:jump-24))))
     (emit-fixup context (make-fixup label 2 #'emitter #'control+label-resizer))))
 
-(defun maybe-emit-entry-close (context dynenv-info)
+(defun maybe-emit-entry-close (context exit-info)
   (flet ((emitter (fixup position code)
            (assert (= (fixup-size fixup) 1))
            (assemble-into code position m:entry-close))
          (resizer (fixup)
            (declare (ignore fixup))
-           (if (closed-over-p dynenv-info) 1 0)))
-    (emit-fixup context (make-fixup dynenv-info 0 #'emitter #'resizer))))
+           (if (lexical-exit-info-closed-over-p exit-info) 1 0)))
+    (emit-fixup context (make-fixup exit-info 0 #'emitter #'resizer))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -859,7 +857,8 @@
            (assemble context m:ref (frame-offset info)))
           (t
            (setf (closed-over-p info) t)
-           (assemble context m:closure (closure-index info context))))
+           (assemble context m:closure
+             (closure-index (trucler:identity info) context))))
     (maybe-emit-cell-ref info context)
     (when (eql (context-receiving context) -1)
       (assemble context m:pop))))
@@ -922,7 +921,7 @@
   (when (eq (trucler:ignore info) 'cl:ignore)
     (warn 'used :name (trucler:name info)
                 :kind 'function :source (context-source context)))
-  (reference-lexical-variable info context)
+  (reference-lexical-variable (trucler:identity info) context)
   (compile-call (rest form) env context))
 
 ;;; Given a lambda expression, compile it, and generate code to get the
@@ -1319,8 +1318,8 @@
                                new-context)
                 ;; Initialize closures
                 (dolist (closure closures)
-                  (loop for var across (cfunction-closed (car closure))
-                        do (reference-lexical-variable var new-context))
+                  (loop for info across (cfunction-closed (car closure))
+                        do (reference-lexical-variable info new-context))
                   (assemble context m:initialize-closure (cdr closure)))
                 ;; Finally, the actual body of the labels.
                 (compile-progn body (add-declarations new-env decls) new-context)
@@ -1368,7 +1367,8 @@
            (emit-lexical-set info context))
           ;; Don't emit a fixup if we already know we need a cell.
           (t
-           (assemble context m:closure (closure-index info context))
+           (assemble context m:closure
+             (closure-index (trucler:identity info) context))
            (assemble context m:cell-set)))
     (when (eql (context-receiving context) -1)
       (assemble context m:pop))))
@@ -1420,8 +1420,8 @@
 
 ;;; Push the immutable value or cell of lexical in CONTEXT.
 (defun reference-lexical-variable (info context)
-  (if (eq (lvar-cfunction info) (context-function context))
-      (assemble context m:ref (frame-offset info))
+  (if (eq (lexical-info-cfunction info) (context-function context))
+      (assemble context m:ref (lexical-info-frame-offset info))
       (assemble context m:closure (closure-index info context))))
 
 (defun compile-function-lookup (fnameoid env context)
@@ -1441,7 +1441,7 @@
             (warn 'used :name (trucler:name info)
                         :kind 'function :source (context-source context)))
           (unless (eql 0 (context-receiving context))
-            (reference-lexical-variable info context)))
+            (reference-lexical-variable (trucler:identity info) context)))
          (null
           (warn-unknown 'unknown-function
                         :name fnameoid :source (context-source context))
@@ -1462,119 +1462,116 @@
 (defmethod compile-special ((op (eql 'tagbody)) form env context)
   (let* ((statements (rest form))
          (new-tags (tags env))
-         (tagbody-dynenv (gensym "TAG-DYNENV"))
+         (exit-offset (context-frame-end context))
+         (exit-info
+           (make-lexical-exit-info exit-offset (context-function context)))
+         (context (new-context context :frame-end (1+ exit-offset)
+                               :dynenv (list exit-info)))
          (end (make-label)))
     (unless (proper-list-p statements)
       (error 'improper-body :body statements :source (context-source context)))
-    (multiple-value-bind (env stmt-context-1)
-        (bind-vars (list tagbody-dynenv) env context
-                   ;; the dynenv is implicitly ignorable.
-                   `((declare (ignorable ,tagbody-dynenv))))
-      (let* ((dynenv-info (var-info tagbody-dynenv env))
-             (stmt-context (new-context stmt-context-1
-                                        :receiving 0
-                                        :dynenv (list dynenv-info)))
-             (local-tags nil))
+    (let ((stmt-context (new-context context :receiving 0))
+          (local-tags nil))
+      (dolist (statement statements)
+        (when (go-tag-p statement)
+          (let* ((label (make-label)))
+            (push (make-tag statement exit-info label) new-tags)
+            (push (cons statement label) local-tags))))
+      (let ((env (make-lexical-environment env :tags new-tags)))
+        ;; Bind the dynamic environment.
+        (emit-entry-or-save-sp context exit-info)
+        ;; Emit structural map info.
+        (let ((start (make-label)))
+          (emit-label context start)
+          (push-map-info (make-instance 'm:tagbody-info
+                           :start start :end end :tags local-tags)
+                         context))
+        ;; Compile the body, emitting the tag destination labels.
         (dolist (statement statements)
-          (when (go-tag-p statement)
-            (let ((label (make-label)))
-              (push (list* statement dynenv-info label) new-tags)
-              (push (cons statement label) local-tags))))
-        (let ((env (make-lexical-environment env :tags new-tags)))
-          ;; Bind the dynamic environment.
-          (emit-entry-or-save-sp context dynenv-info)
-          ;; Emit structural map info.
-          (let ((start (make-label)))
-            (emit-label context start)
-            (push-map-info (make-instance 'm:tagbody-info
-                             :start start :end end :tags local-tags)
-                           context))
-          ;; Compile the body, emitting the tag destination labels.
-          (dolist (statement statements)
-            (if (go-tag-p statement)
-                (emit-label context (cddr (assoc statement (tags env))))
-                (compile-form statement env stmt-context))))
-        (emit-label context end)
-        (maybe-emit-entry-close context dynenv-info))
-      ;; return nil if we really have to
-      (unless (eql (context-receiving context) 0)
-        (assemble context m:nil)
-        (when (eql (context-receiving context) -1)
-          (assemble context m:pop))))))
+          (if (go-tag-p statement)
+              (emit-label context (cdr (assoc statement local-tags)))
+              (compile-form statement env stmt-context))))
+      (emit-label context end)
+      (maybe-emit-entry-close context exit-info))
+    ;; return nil if we really have to
+    (unless (eql (context-receiving context) 0)
+      (assemble context m:nil)
+      (when (eql (context-receiving context) -1)
+        (assemble context m:pop)))))
 
-(defun compile-exit (exit-info context)
-  (destructuring-bind (dynenv-info . label) exit-info
-    (cond ((eq (lvar-cfunction dynenv-info) (context-function context))
-           ;; Local unwind.
-           (dolist (entry (context-dynenv context))
-             (when (eq entry dynenv-info) (return))
-             (etypecase entry
-               ((eql :special) ; special binding
-                ;; TODO: Doesn't matter now, but if we had an unbind-n
-                ;; instruction we could leverage that here.
-                (emit-unbind context 1))
-               ((eql :catch)
-                (assemble context m:catch-close))
-               ((eql :protect) ; unwind protect
-                (assemble context m:cleanup))
-               (trucler:lexical-variable-description
-                (maybe-emit-entry-close context entry))))
-           ;; Exit.
-           (emit-ref-or-restore-sp context dynenv-info)
-           (emit-exit-or-jump context dynenv-info label))
-          (t
-           (setf (closed-over-p dynenv-info) t)
-           (assemble context m:closure (closure-index dynenv-info context))
-           (emit-exit context label)))))
+(defun compile-exit (exit-info label context)
+  (cond ((eq (lexical-info-cfunction exit-info) (context-function context))
+         ;; Local unwind.
+         (dolist (entry (context-dynenv context))
+           (when (eq entry exit-info) (return))
+           (etypecase entry
+             ((eql :special) ; special binding
+              ;; TODO: Doesn't matter now, but if we had an unbind-n
+              ;; instruction we could leverage that here.
+              (emit-unbind context 1))
+             ((eql :catch)
+              (assemble context m:catch-close))
+             ((eql :protect) ; unwind protect
+              (assemble context m:cleanup))
+             (lexical-exit-info
+              (maybe-emit-entry-close context entry))))
+         ;; Exit.
+         (emit-ref-or-restore-sp context exit-info)
+         (emit-exit-or-jump context exit-info label))
+        (t
+         (setf (lexical-exit-info-closed-over-p exit-info) t)
+         (assemble context m:closure (closure-index exit-info context))
+         (emit-exit context label))))
 
 (defmethod compile-special ((op (eql 'go)) form env context)
   (destructure-syntax (go tag) (form :source (context-source context))
     (unless (go-tag-p tag) (error 'go-tag-not-tag
                                   :tag tag :source (context-source context)))
-    (let ((pair (assoc tag (tags env))))
-      (if pair
-          (compile-exit (cdr pair) context)
+    (let ((desc (tag-info tag env)))
+      (if desc
+          (let ((dest (trucler:identity desc)))
+            (compile-exit (lexical-destination-exit-info dest)
+                          (lexical-destination-label dest)
+                          context))
           (error 'no-go :tag tag :source (context-source context))))))
 
 (defun compile-block (name body env context)
   (unless (symbolp name) (error 'block-name-not-symbol
                                 :name name :source (context-source context)))
-  (let ((block-dynenv (gensym "BLOCK-DYNENV")))
-    (multiple-value-bind (env body-context-1)
-        (bind-vars (list block-dynenv) env context
-                   `((declare (ignorable ,block-dynenv))))
-      (let* ((dynenv-info (var-info block-dynenv env))
-             (body-context (new-context body-context-1
-                                        :dynenv (list dynenv-info)))
-             (label (make-label))
-             (normal-label (make-label)))
-        ;; Bind the dynamic environment.
-        (emit-entry-or-save-sp context dynenv-info)
-        ;; Output structure info.
-        (let ((start (make-label)))
-          (emit-label context start)
-          (push-map-info (make-instance 'm:block-info
-                           :start start :end label
-                           :name name
-                           :receiving (context-receiving context))
-                         context))
-        ;; Build the environment to compile the body in.
-        (let ((env (make-lexical-environment
-                    env
-                    :blocks (acons name (cons dynenv-info label)
-                                   (blocks env)))))
-          ;; Force single values into multiple
-          ;; so that we can uniformly PUSH afterward.
-          (compile-progn body env body-context))
-        (when (eql (context-receiving context) 1)
-          (emit-jump context normal-label))
-        (emit-label context label)
-        ;; When we need 1 value, we have to make sure that the
-        ;; "exceptional" case pushes a single value onto the stack.
-        (when (eql (context-receiving context) 1)
-          (assemble context m:push)
-          (emit-label context normal-label))
-        (maybe-emit-entry-close context dynenv-info)))))
+  (let* ((dynenv-index (context-frame-end context))
+         (label (make-label))
+         (dynenv-desc
+           (make-block name dynenv-index (context-function context) label))
+         (dest-info (trucler:identity dynenv-desc))
+         (exit-info (lexical-destination-exit-info dest-info))
+         (body-context (new-context context
+                                    :frame-end (1+ dynenv-index)
+                                    :dynenv (list exit-info)))
+         (normal-label (make-label)))
+    ;; Bind the dynamic environment.
+    (emit-entry-or-save-sp context exit-info)
+    ;; Output structure info.
+    (let ((start (make-label)))
+      (emit-label context start)
+      (push-map-info (make-instance 'm:block-info
+                       :start start :end label
+                       :name name
+                       :receiving (context-receiving context))
+                     context))
+    ;; Build the environment to compile the body in.
+    (let ((env (make-lexical-environment
+                env
+                :blocks (cons dynenv-desc (blocks env)))))
+      (compile-progn body env body-context))
+    (when (eql (context-receiving context) 1)
+      (emit-jump context normal-label))
+    (emit-label context label)
+    ;; When we need 1 value, we have to make sure that the
+    ;; "exceptional" case pushes a single value onto the stack.
+    (when (eql (context-receiving context) 1)
+      (assemble context m:push)
+      (emit-label context normal-label))
+    (maybe-emit-entry-close context exit-info)))
 
 (defmethod compile-special ((op (eql 'block)) form env context)
   (destructure-syntax (block name . body) (form :source (context-source context))
@@ -1587,9 +1584,12 @@
                                   :name name
                                   :source (context-source context)))
     (compile-form value env (new-context context :receiving -1))
-    (let ((pair (assoc name (blocks env))))
-      (if pair
-          (compile-exit (cdr pair) context)
+    (let ((desc (block-info name env)))
+      (if desc
+          (let ((dest (trucler:identity desc)))
+            (compile-exit (lexical-destination-exit-info dest)
+                          (lexical-destination-label dest)
+                          context))
           (error 'no-return :name name :source (context-source context))))))
 
 (defmethod compile-special ((op (eql 'catch)) form env context)
