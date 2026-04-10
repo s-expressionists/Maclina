@@ -6,6 +6,10 @@
            #:with-compilation-unit)
   (:export #:compile-into #:compile #:eval #:eval-progn)
   (:export #:with-compilation-unit #:with-compilation-results)
+  ;; Declaration handling
+  (:export #:process-declaration #:process-declarations
+           #:process-binding-declaration
+           #:process-variable-declaration #:process-function-declaration)
   ;; Compiler guts - used in cmpltv
   (:export #:add-declarations #:lexenv-for-macrolet
 	   #:make-null-lexical-environment

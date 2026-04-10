@@ -65,6 +65,9 @@
   (declare (ignore client))
   (find name (tags env) :key #'trucler:name))
 
+(defmethod trucler:describe-declarations (client (env lexical-environment))
+  (trucler:describe-declarations client (global-environment env)))
+
 (defmethod trucler:add-local-special-variable
     (client (env lexical-environment) name)
   (if (typep (trucler:describe-variable client env name)
@@ -72,23 +75,22 @@
       env
       (make-lexical-environment
        env
-       :vars (acons name
-                    (make-instance 'trucler:local-special-variable-description
-                      :name name)
-                    (vars env)))))
+       :vars (cons (make-instance 'trucler:local-special-variable-description
+                     :name name)
+                   (vars env)))))
 
 (defmethod trucler:add-local-symbol-macro
     (client (env lexical-environment) name expansion)
   (declare (ignore client))
   (make-lexical-environment
    env
-   :vars (acons name (make-symbol-macro name expansion) (vars env))))
+   :vars (cons (make-symbol-macro name expansion) (vars env))))
 
 (defmethod trucler:add-local-macro (client (env lexical-environment) name expander)
   (declare (ignore client))
   (make-lexical-environment
    env
-   :funs (acons name (make-local-macro name expander) (funs env))))
+   :funs (cons (make-local-macro name expander) (funs env))))
 
 (defmethod trucler:add-inline (client (env lexical-environment) name inline)
   ;; FIXME
@@ -183,6 +185,98 @@
     :name name
     :identity (make-lexical-variable-info frame-offset cfunction)
     :ignore ignore :type type :dynamic-extent dynamic-extent))
+
+;;; Return a new trucler desc, given an existing desc and some declarations
+;;; (as returned from PROCESS-DECLARATIONS).
+;;; This should probably use TRUCLER:QUASI-CLONE, except that only takes one pair
+;;; of initarg and value, for some reason?
+(defgeneric augment-description (variable-description variable-declarations))
+(defmethod augment-description ((desc trucler:lexical-variable-description)
+                                vdecls)
+  (make-instance 'trucler:lexical-variable-description
+    :name (trucler:name desc) :identity (trucler:identity desc)
+    :ignore (or (cdr (assoc 'ignore vdecls)) (trucler:ignore desc))
+    :type (let ((existing (trucler:type desc))
+                (newpair (assoc 'type vdecls)))
+            (cond ((null newpair) existing)
+                  ((eq existing 't) (cdr newpair))
+                  (t `(and ,(cdr newpair) ,existing))))
+    :dynamic-extent (or (not (null (assoc 'dynamic-extent vdecls)))
+                      (trucler:dynamic-extent desc))))
+(defmethod augment-description
+    ((desc trucler:local-special-variable-description) vdecls)
+  (make-instance 'trucler:local-special-variable-description
+    :name (trucler:name desc)
+    :ignore (or (cdr (assoc 'ignore vdecls)) (trucler:ignore desc))
+    :type (let ((existing (trucler:type desc))
+                (newpair (assoc 'type vdecls)))
+            (cond ((null newpair) existing)
+                  ((eq existing 't) (cdr newpair))
+                  (t `(and ,(cdr newpair) ,existing))))
+    :dynamic-extent (or (not (null (assoc 'dynamic-extent vdecls)))
+                      (trucler:dynamic-extent desc))))
+(defmethod augment-description
+    ((desc trucler:global-special-variable-description) vdecls)
+  (make-instance 'trucler:global-special-variable-description
+    :name (trucler:name desc)
+    :ignore (or (cdr (assoc 'ignore vdecls)) (trucler:ignore desc))
+    :type (let ((existing (trucler:type desc))
+                (newpair (assoc 'type vdecls)))
+            (cond ((null newpair) existing)
+                  ((eq existing 't) (cdr newpair))
+                  (t `(and ,(cdr newpair) ,existing))))
+    :dynamic-extent (or (not (null (assoc 'dynamic-extent vdecls)))
+                      (trucler:dynamic-extent desc))))
+
+(defmethod augment-description
+    ((desc trucler:global-symbol-macro-description) vdecls)
+  (make-instance 'trucler:global-symbol-macro-description
+    :name (trucler:name desc) :expansion (trucler:expansion desc)
+    :ignore (or (cdr (assoc 'ignore vdecls)) (trucler:ignore desc))
+    :type (let ((existing (trucler:type desc))
+                (newpair (assoc 'type vdecls)))
+            (cond ((null newpair) existing)
+                  ((eq existing 't) (cdr newpair))
+                  (t `(and ,(cdr newpair) ,existing))))))
+(defmethod augment-description
+    ((desc trucler:local-symbol-macro-description) vdecls)
+  (make-instance 'trucler:local-symbol-macro-description
+    :name (trucler:name desc) :expansion (trucler:expansion desc)
+    :ignore (or (cdr (assoc 'ignore vdecls)) (trucler:ignore desc))
+    :type (let ((existing (trucler:type desc))
+                (newpair (assoc 'type vdecls)))
+            (cond ((null newpair) existing)
+                  ((eq existing 't) (cdr newpair))
+                  (t `(and ,(cdr newpair) ,existing))))))
+
+(defmethod augment-description
+    ((desc trucler:global-function-description) fdecls)
+  (make-instance 'trucler:global-function-description
+    :name (trucler:name desc) :compiler-macro (trucler:compiler-macro desc)
+    :ignore (or (cdr (assoc 'ignore fdecls)) (trucler:ignore desc))
+    :type (let ((existing (trucler:type desc))
+                (newpair (assoc 'type fdecls)))
+            (cond ((null newpair) existing)
+                  ((eq existing 't) (cdr newpair))
+                  (t `(and ,(cdr newpair) ,existing))))
+    :dynamic-extent (or (not (null (assoc 'dynamic-extent fdecls)))
+                      (trucler:dynamic-extent desc))
+    :inline (or (cdr (assoc 'inline fdecls)) (trucler:inline desc))
+    :inline-data (trucler:inline-data desc)))
+(defmethod augment-description
+    ((desc trucler:local-function-description) fdecls)
+  (make-instance 'trucler:local-function-description
+    :name (trucler:name desc) :identity (trucler:identity desc)
+    :ignore (or (cdr (assoc 'ignore fdecls)) (trucler:ignore desc))
+    :type (let ((existing (trucler:type desc))
+                (newpair (assoc 'type fdecls)))
+            (cond ((null newpair) existing)
+                  ((eq existing 't) (cdr newpair))
+                  (t `(and ,(cdr newpair) ,existing))))
+    :dynamic-extent (or (not (null (assoc 'dynamic-extent fdecls)))
+                      (trucler:dynamic-extent desc))
+    :inline (or (cdr (assoc 'inline fdecls)) (trucler:inline desc))
+    :inline-data (trucler:inline-data desc)))
 
 (defun make-symbol-macro (name expansion &key ignore (type t))
   (make-instance 'trucler:symbol-macro-description
