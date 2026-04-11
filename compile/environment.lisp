@@ -279,7 +279,7 @@
     :inline-data (trucler:inline-data desc)))
 
 (defun make-symbol-macro (name expansion &key ignore (type t))
-  (make-instance 'trucler:symbol-macro-description
+  (make-instance 'trucler:local-symbol-macro-description
     :name name :expansion expansion :ignore ignore :type type))
 
 (defun globally-special-p (symbol env)
