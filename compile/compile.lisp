@@ -694,7 +694,7 @@
                                                            vdecls)))))
                       ((not existing)
                           ;; declarations but no variable: assume special
-                       (warn 'unknown-variable :name var :source source)
+                       (warn-unknown 'unknown-variable :name var :source source)
                        (make-instance 'trucler:global-special-variable-description
                          :name var :ignore (cdr (assoc 'ignore vdecls))
                          :type (let ((pair (assoc 'type vdecls)))
@@ -713,7 +713,7 @@
   (loop for (fun . fdecls) in decls
         for existing = (fun-info fun env)
         collect (cond ((not existing)
-                       (warn 'unknown-function :name fun :source source)
+                       (warn-unknown 'unknown-function :name fun :source source)
                        (make-instance 'trucler:global-function-description
                          :name fun :ignore (cdr (assoc 'ignore fdecls))
                          :type (let ((pair (assoc 'ftype fdecls)))
