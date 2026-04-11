@@ -84,11 +84,29 @@
              (format stream "Parameter to ~s is not a valid function name or lambda expression: ~s"
                      'cl:function (fnameoid condition)))))
 
-(define-condition not-declaration (compiler-program-error)
+(define-condition not-declaration (compiler-program-warning)
   ((%specifier :initarg :specifier :reader specifier))
   (:report (lambda (condition stream)
              (format stream "~s is not a valid declaration specifier"
                      (specifier condition)))))
+
+(define-condition lexical-declaration (compiler-program-warning)
+  ((%specifier :initarg :specifier :reader specifier))
+  (:report (lambda (condition stream)
+             (format stream "~s is not valid outside of proclamations: ~s declaration ignored"
+                     'declaration (specifier condition)))))
+
+(define-condition declaration-not-binding (compiler-program-warning)
+  ((%binding :initarg :binding :reader binding))
+  (:report (lambda (condition stream)
+             (format stream "~s is not a valid variable or #'function binding in declaration"
+                     (binding condition)))))
+
+(define-condition declaration-not-symbol (compiler-program-warning)
+  ((%binding :initarg :binding :reader binding))
+  (:report (lambda (condition stream)
+             (format stream "~s is not a symbol binding in declaration"
+                     (binding condition)))))
 
 (define-condition setq-uneven (compiler-program-error)
   ((%remainder :initarg :remainder :reader remainder))
@@ -120,7 +138,7 @@
              (format stream "~a situations are not a proper list: ~s"
                      'eval-when (situations condition)))))
 
-(define-condition improper-declarations (compiler-program-error)
+(define-condition improper-declarations (compiler-program-warning)
   ((%declarations :initarg :declarations :reader declarations))
   (:report (lambda (condition stream)
              (format stream "Declarations are not a proper list: ~s"

@@ -507,16 +507,19 @@
 ;;; In the case of boolean declarations (SPECIAL, DX) the value is
 ;;; treated as a generalized boolean.
 (defgeneric process-declaration (client environment
-                                 declaration-identifier declaration))
+                                 declaration-identifier declaration
+                                 &key source))
 
-(defmethod process-declaration (client env (id (eql 'cl:declaration)) decl)
+(defmethod process-declaration (client env (id (eql 'cl:declaration)) decl &key (source (default-source-location)))
   (declare (ignore client env))
-  ;;(warn ...)
+  (warn 'lexical-declaration :specifier decl :source source)
   (values nil nil nil))
 
-(defun process-binding-declaration (declaration-data key value)
+(defun process-binding-declaration (declaration-data key value
+                                    &key (specifier (cons key declaration-data))
+                                    (source (default-source-location)))
   (unless (listp declaration-data)
-    ;;(warn ...)
+    (warn 'not-declaration :specifier specifier :source source)
     (return-from process-binding-declaration (values nil nil nil)))
   (loop for cdata on declaration-data
         for binding = (car cdata)
@@ -526,82 +529,108 @@
                   (null (cddr binding))
                   (eq (car binding) 'cl:function))
                collect (list (second binding) key value) into funs
-        #|else
-          do (warn ...)|#
-        #|unless (listp (cdr cdata))
-          do (warn ...)|#
+        else
+          do (warn 'declaration-not-binding
+                   :binding binding :source source)
+        unless (listp (cdr cdata))
+          do (warn 'not-declaration
+                   :specifier specifier :source source)
         finally (return (values vars funs nil))))
 
-(defun process-variable-declaration (declaration-data key value)
+(defun process-variable-declaration (declaration-data key value
+                                     &key (specifier (cons key declaration-data))
+                                     (source (default-source-location)))
   (unless (listp declaration-data)
-    ;;(warn ...)
+    (warn 'not-declaration :specifier specifier :source source)
     (return-from process-variable-declaration (values nil nil nil)))
   (loop for cdata on declaration-data
         for binding = (car cdata)
         if (symbolp binding)
           collect (list binding key value) into vars
-        #|else
-          do (warn ...)
+        else do (warn 'declaration-not-symbol
+                      :binding binding :source source)
         unless (listp (cdr cdata))
-          do (warn ...)|#
+          do (warn 'not-declaration
+                   :specifier specifier :source source)
         finally (return (values vars nil nil))))
 
-(defun process-function-declaration (declaration-data key value)
+(defun process-function-declaration (declaration-data key value
+                                     &key (specifier (cons key declaration-data))
+                                     (source (default-source-location)))
   (unless (listp declaration-data)
-    ;;(warn ...)
+    (warn 'not-declaration :specifier specifier :source source)
     (return-from process-function-declaration (values nil nil nil)))
   (loop for cdata on declaration-data
         for binding = (car cdata)
         if (symbolp binding)
           collect (list binding key value) into funs
-        #|else
-          do (warn ...)
+        else do (warn 'declaration-not-symbol
+                      :binding binding :source source)
         unless (listp (cdr cdata))
-          do (warn ...)|#
+          do (warn 'not-declaration
+                   :specifier specifier :source source)
         finally (return (values nil funs nil))))
 
-(defmethod process-declaration (client env (id (eql 'cl:dynamic-extent)) decl)
+(defmethod process-declaration (client env (id (eql 'cl:dynamic-extent)) decl
+                                &key (source (default-source-location)))
   (declare (ignore client env))
-  (process-binding-declaration (cdr decl) id id))
+  (process-binding-declaration (cdr decl) id id
+                               :specifier decl :source source))
 
-(defmethod process-declaration (client env (id (eql 'cl:ftype)) decl)
+(defmethod process-declaration (client env (id (eql 'cl:ftype)) decl
+                                &key (source (default-source-location)))
   (declare (ignore client env))
   (unless (consp (cdr decl))
-    ;;(warn ...)
+    (warn 'not-declaration :specifier decl :source source)
     (return-from process-declaration (values nil nil nil)))
-  (process-function-declaration (cddr decl) id (second decl)))
+  (process-function-declaration (cddr decl) id (second decl)
+                                :specifier decl :source source))
 
-(defmethod process-declaration (client env (id (eql 'cl:ignorable)) decl)
+(defmethod process-declaration (client env (id (eql 'cl:ignorable)) decl
+                                &key (source (default-source-location)))
   (declare (ignore client env))
-  (process-binding-declaration (cdr decl) 'cl:ignore id))
+  (process-binding-declaration (cdr decl) 'cl:ignore id
+                               :specifier decl :source source))
 (defmethod process-declaration (client env
-                                (id (eql 'cl:ignore)) decl)
+                                (id (eql 'cl:ignore)) decl
+                                &key (source (default-source-location)))
   (declare (ignore client env))
-  (process-binding-declaration (cdr decl) 'cl:ignore id))
+  (process-binding-declaration (cdr decl) 'cl:ignore id
+                               :specifier decl :source source))
 
-(defmethod process-declaration (client env (id (eql 'cl:inline)) decl)
+(defmethod process-declaration (client env (id (eql 'cl:inline)) decl
+                                &key (source (default-source-location)))
   (declare (ignore client env))
-  (process-function-declaration (cdr decl) 'cl:inline id))
-(defmethod process-declaration (client env (id (eql 'cl:notinline)) decl)
+  (process-function-declaration (cdr decl) 'cl:inline id
+                                :specifier decl :source source))
+(defmethod process-declaration (client env (id (eql 'cl:notinline)) decl
+                                &key (source (default-source-location)))
   (declare (ignore client env))
-  (process-function-declaration (cdr decl) 'cl:inline id))
+  (process-function-declaration (cdr decl) 'cl:inline id
+                                :specifier decl :source source))
 
-(defmethod process-declaration (client env (id (eql 'cl:optimize)) decl)
-  (declare (ignore client env))
+(defmethod process-declaration (client env (id (eql 'cl:optimize)) decl
+                                &key (source (default-source-location)))
+  (declare (ignore client env source))
   (values nil nil (list decl)))
 
-(defmethod process-declaration (client env (id (eql 'cl:special)) decl)
+(defmethod process-declaration (client env (id (eql 'cl:special)) decl
+                                &key (source (default-source-location)))
   (declare (ignore client env))
-  (process-variable-declaration (cdr decl) id id))
+  (process-variable-declaration (cdr decl) id id
+                                :specifier decl :source source))
 
-(defmethod process-declaration (client env (id (eql 'cl:type)) decl)
+(defmethod process-declaration (client env (id (eql 'cl:type)) decl
+                                &key (source (default-source-location)))
   (declare (ignore client env))
   (unless (consp (cdr decl))
-    ;;(warn ...)
+    (warn 'not-declaration :specifier decl :source source)
     (return-from process-declaration (values nil nil nil)))
-  (process-variable-declaration (cddr decl) id (second decl)))
+  (process-variable-declaration (cddr decl) id (second decl)
+                                :specifier decl :source source))
 
-(defmethod process-declaration (client env id decl)
+(defmethod process-declaration (client env id decl
+                                &key (source (default-source-location)))
   (let (;; declarations defined with (DECLAIM (DECLARATION ...))
         (known (trucler:declarations
                 (trucler:describe-declarations client env))))
@@ -609,9 +638,12 @@
         (values nil nil decl)
         ;; must be a type (CLHS 3.3.3.1)
         ;; FIXME: see if it's actually defined as a type.
-        (process-variable-declaration (cdr decl) 'cl:type id))))
+        (process-variable-declaration (cdr decl) 'cl:type id
+                                      :specifier decl
+                                      :source source))))
 
-(defun process-declarations (client env declarations)
+(defun process-declarations (client env declarations
+                             &key (source (default-source-location)))
   (loop with vars = nil with funs = nil with other = nil
         for (declare . decls) in declarations
         if (listp decls)
@@ -619,7 +651,8 @@
                    for decl = (car cdecls)
                    if (consp decl)
                      do (multiple-value-bind (v f o)
-                            (process-declaration client env (car decl) decl)
+                            (process-declaration client env (car decl) decl
+                                                 :source source)
                           (loop for (binding-name key value) in v
                                 do (push (cons key value)
                                          (alexandria:assoc-value
@@ -630,10 +663,14 @@
                                           funs binding-name
                                           :test #'equal)))
                           (setf other (append o other)))
-                   #|else do (warn ...)
+                   else do (warn 'not-declaration
+                                 :specifier decl :source source)
                    unless (listp (cdr cdecls))
-                   do (warn ...)|#)
-        #|else do (warn ...)|#
+                     do (warn 'improper-declarations
+                              :declarations (cdr cdecls)
+                              :source source))
+        else do (warn 'improper-declarations
+                      :declarations decls :source source)
         finally (return (values vars funs other))))
 
 ;;; Given an environment and free variable declarations returned from
@@ -699,7 +736,8 @@
 
 (defun add-declarations (env decls &optional (source (default-source-location)))
   (multiple-value-call #'%add-declarations
-    env (process-declarations m:*client* env decls) source))
+    env (process-declarations m:*client* env decls :source source)
+    source))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
