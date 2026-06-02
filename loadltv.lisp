@@ -557,7 +557,11 @@ Did not initialize constants~{ #~d~}"
 (defmethod %load-instruction ((mnemonic (eql 'intern)) stream)
   (let ((package (read-index stream)) (name (read-index stream)))
     (dbgprint " (intern ~d ~d)" package name)
-    (setf (next-constant) (intern (constant name) (constant package)))))
+    (setf (next-constant)
+          ;; Bind host *PACKAGE* to avoid any package locks.
+          (let ((*package* (m:symbol-value m:*client* *environment*
+                                           '*package*)))
+            (intern (constant name) (constant package))))))
 
 (defmethod %load-instruction ((mnemonic (eql 'make-character)) stream)
   (let* ((code (read-ub32 stream))
