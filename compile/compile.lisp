@@ -782,6 +782,30 @@
         finally (return (values new-descs index special-binding-count
                                 (nset-difference vdecls delete-dpairs)))))
 
+;; m:bind-required-args puts the args into the locals directly,
+;; which makes bind-vars no good.
+;; See the SPECIAL-MID-BINDING test. Say our lambda list is (x *y* z).
+;; Then bind-required-args puts x in 0, *y* in 1, and z in 2, even
+;; though *y* doesn't actually need a local.
+;; Cleaner solution is probably to have bind-required-args push to
+;; the stack instead of directly inserting into locals, but that's
+;; an incompatible change I don't want to deal with right now.
+(defun bind-req-vars (vars env context vdecls)
+  (loop for index from (context-frame-end context)
+        with function = (context-function context)
+        with special-binding-count = 0
+        for var in vars
+        for dpair = (assoc var vdecls)
+        for decls = (cdr dpair)
+        for desc = (make-var-desc var env index function decls)
+        do (etypecase desc
+             (trucler:lexical-variable-description)
+             (trucler:special-variable-description (incf special-binding-count)))
+        collect desc into new-descs
+        collect dpair into delete-dpairs
+        finally (return (values new-descs index special-binding-count
+                                (nset-difference vdecls delete-dpairs)))))
+
 ;;; bind an optional/key variable and its corresponding -p.
 ;;; this latter can be NIL, in which case NIL is returned for that description.
 ;;; This is a specialized bind-vars.
@@ -2037,7 +2061,7 @@
         (unless (zerop min-count)
           (assemble context m:bind-required-args min-count)
           (multiple-value-bind (req-descs offset sbc new-vdecls)
-              (bind-vars required env context vdecls)
+              (bind-req-vars required env context vdecls)
             (loop for i from 0
                   for req in req-descs
                   do (etypecase req
