@@ -7,13 +7,13 @@
                                     (global-environment))
                                 (:constructor %make-lexical-environment)
                                 (:conc-name nil))
-  ;; An alist of (var . lvar-desc) in the current environment.
+  ;; An list of variable-descriptions in the current environment.
   (vars nil :type list :read-only t)
-  ;; An alist of (tag dynenv-desc . label) in the current environment.
+  ;; A list of tag descriptions in the current environment.
   (tags nil :type list :read-only t)
-  ;; An alist of (block block-dynenv . label) in the current environment.
+  ;; A list of block descriptions in the current environment.
   (blocks nil :type list :read-only t)
-  ;; An alist of (fun . lfun-desc) in the current environment.
+  ;; A list of operator-descriptions in the current environment.
   (funs nil :type list :read-only t)
   ;; Global environment, which we just pass to Trucler.
   (global-environment (missing-arg) :read-only t))
@@ -47,23 +47,26 @@
 
 (defmethod trucler:describe-variable
     (client (env lexical-environment) name)
-  (or (cdr (assoc name (vars env)))
+  (or (find name (vars env) :key #'trucler:name)
       (trucler:describe-variable client (global-environment env) name)))
 
 (defmethod trucler:describe-function
     (client (env lexical-environment) name)
-  (or (cdr (assoc name (funs env) :test #'equal))
+  (or (find name (funs env) :key #'trucler:name :test #'equal)
       (trucler:describe-function client (global-environment env) name)))
 
 (defmethod trucler:describe-block
     (client (env lexical-environment) name)
   (declare (ignore client))
-  (cdr (assoc name (blocks env))))
+  (find name (blocks env) :key #'trucler:name))
 
 (defmethod trucler:describe-tag
     (client (env lexical-environment) name)
   (declare (ignore client))
-  (cdr (assoc name (tags env))))
+  (find name (tags env) :key #'trucler:name))
+
+(defmethod trucler:describe-declarations (client (env lexical-environment))
+  (trucler:describe-declarations client (global-environment env)))
 
 (defmethod trucler:add-local-special-variable
     (client (env lexical-environment) name)
@@ -72,23 +75,22 @@
       env
       (make-lexical-environment
        env
-       :vars (acons name
-                    (make-instance 'trucler:local-special-variable-description
-                      :name name)
-                    (vars env)))))
+       :vars (cons (make-instance 'trucler:local-special-variable-description
+                     :name name)
+                   (vars env)))))
 
 (defmethod trucler:add-local-symbol-macro
     (client (env lexical-environment) name expansion)
   (declare (ignore client))
   (make-lexical-environment
    env
-   :vars (acons name (make-symbol-macro name expansion) (vars env))))
+   :vars (cons (make-symbol-macro name expansion) (vars env))))
 
 (defmethod trucler:add-local-macro (client (env lexical-environment) name expander)
   (declare (ignore client))
   (make-lexical-environment
    env
-   :funs (acons name (make-local-macro name expander) (funs env))))
+   :funs (cons (make-local-macro name expander) (funs env))))
 
 (defmethod trucler:add-inline (client (env lexical-environment) name inline)
   ;; FIXME
@@ -96,39 +98,58 @@
   env)
 
 (defun var-info (name env)
-  (or (cdr (assoc name (vars env)))
-      (trucler:describe-variable m:*client* (global-environment env) name)))
+  (trucler:describe-variable m:*client* env name))
 (defun fun-info (name env)
-  (or (cdr (assoc name (funs env) :test #'equal))
-      (trucler:describe-function m:*client* (global-environment env) name)))
+  (trucler:describe-function m:*client* env name))
+(defun block-info (name env)
+  (trucler:describe-block m:*client* env name))
+(defun tag-info (name env)
+  (trucler:describe-tag m:*client* env name))
 
-;;; Our info for lexical bindings (variable and function).
+;;; Our info for lexical bindings (variable, function, block, tagbody).
 (defstruct (lexical-info
             (:constructor make-lexical-info (frame-offset cfunction)))
   ;; Register index for this lvar.
   (frame-offset (missing-arg) :read-only t :type (integer 0))
   ;; Cfunction this lvar belongs to (i.e. is bound by)
-  (cfunction (missing-arg) :read-only t :type cfunction)
+  (cfunction (missing-arg) :read-only t :type cfunction))
+
+;;; For variables and functions, where we want to note unused bindings.
+(defstruct (ignorable-lexical-info
+            (:constructor make-ignorable-lexical-info (frame-offset cfunction))
+            (:include lexical-info))
   ;; Has the variable been read (for cl:ignore tracking).
   (readp nil :type boolean))
 
 ;;; Our info for specifically variable bindings.
 ;;; (while function bindings can be closed over, they can't be modified,
-;;;  so we don't really care.)
+;;;  so we don't need to worry about cells, and thus closed-over-p is unneeded.)
 (defstruct (lexical-variable-info
             (:constructor make-lexical-variable-info (frame-offset cfunction))
-            (:include lexical-info))
+            (:include ignorable-lexical-info))
   (closed-over-p nil :type boolean)
   (setp nil :type boolean))
+
+;;; Info for blocks and tagbody, where we don't want to note unusedness,
+;;; but do need to track if they're closed over.
+(defstruct (lexical-exit-info
+            (:constructor make-lexical-exit-info (frame-offset cfunction))
+            (:include lexical-info))
+  (closed-over-p nil :type boolean))
+
+(defstruct (lexical-destination
+            (:constructor make-lexical-destination (exit-info label)))
+  (exit-info (missing-arg) :type lexical-exit-info)
+  (label (missing-arg)))
 
 (defun frame-offset (lex-desc)
   (lexical-info-frame-offset (trucler:identity lex-desc)))
 (defun lvar-cfunction (lex-desc)
   (lexical-info-cfunction (trucler:identity lex-desc)))
 (defun lvar-readp (lex-desc)
-  (lexical-info-readp (trucler:identity lex-desc)))
+  (ignorable-lexical-info-readp (trucler:identity lex-desc)))
 (defun (setf lvar-readp) (new lex-desc)
-  (setf (lexical-info-readp (trucler:identity lex-desc)) new))
+  (setf (ignorable-lexical-info-readp (trucler:identity lex-desc)) new))
 
 (defun closed-over-p (lvar-desc)
   (lexical-variable-info-closed-over-p (trucler:identity lvar-desc)))
@@ -147,27 +168,134 @@
 (defun indirect-lexical-p (lvar)
   (and (closed-over-p lvar) (setp lvar)))
 
-(defun make-lexical-variable (name frame-offset cfunction &key ignore)
+(defun make-block (name frame-offset cfunction label)
+  (make-instance 'trucler:block-description
+    :name name
+    :identity (make-lexical-destination
+               (make-lexical-exit-info frame-offset cfunction)
+               label)))
+(defun make-tag (name exit-info label)
+  (make-instance 'trucler:tag-description
+    :name name
+    :identity (make-lexical-destination exit-info label)))
+
+(defun make-lexical-variable (name frame-offset cfunction
+                              &key ignore (type t) dynamic-extent)
   (make-instance 'trucler:lexical-variable-description
     :name name
     :identity (make-lexical-variable-info frame-offset cfunction)
-    :ignore ignore))
+    :ignore ignore :type type :dynamic-extent dynamic-extent))
 
-(defun make-symbol-macro (name expansion)
-  (make-instance 'trucler:symbol-macro-description
-    :name name :expansion expansion))
+;;; Return a new trucler desc, given an existing desc and some declarations
+;;; (as returned from PROCESS-DECLARATIONS).
+;;; This should probably use TRUCLER:QUASI-CLONE, except that only takes one pair
+;;; of initarg and value, for some reason?
+(defgeneric augment-description (variable-description variable-declarations))
+(defmethod augment-description ((desc trucler:lexical-variable-description)
+                                vdecls)
+  (make-instance 'trucler:lexical-variable-description
+    :name (trucler:name desc) :identity (trucler:identity desc)
+    :ignore (or (cdr (assoc 'ignore vdecls)) (trucler:ignore desc))
+    :type (let ((existing (trucler:type desc))
+                (newpair (assoc 'type vdecls)))
+            (cond ((null newpair) existing)
+                  ((eq existing 't) (cdr newpair))
+                  (t `(and ,(cdr newpair) ,existing))))
+    :dynamic-extent (or (not (null (assoc 'dynamic-extent vdecls)))
+                      (trucler:dynamic-extent desc))))
+(defmethod augment-description
+    ((desc trucler:local-special-variable-description) vdecls)
+  (make-instance 'trucler:local-special-variable-description
+    :name (trucler:name desc)
+    :ignore (or (cdr (assoc 'ignore vdecls)) (trucler:ignore desc))
+    :type (let ((existing (trucler:type desc))
+                (newpair (assoc 'type vdecls)))
+            (cond ((null newpair) existing)
+                  ((eq existing 't) (cdr newpair))
+                  (t `(and ,(cdr newpair) ,existing))))
+    :dynamic-extent (or (not (null (assoc 'dynamic-extent vdecls)))
+                      (trucler:dynamic-extent desc))))
+(defmethod augment-description
+    ((desc trucler:global-special-variable-description) vdecls)
+  (make-instance 'trucler:global-special-variable-description
+    :name (trucler:name desc)
+    :ignore (or (cdr (assoc 'ignore vdecls)) (trucler:ignore desc))
+    :type (let ((existing (trucler:type desc))
+                (newpair (assoc 'type vdecls)))
+            (cond ((null newpair) existing)
+                  ((eq existing 't) (cdr newpair))
+                  (t `(and ,(cdr newpair) ,existing))))
+    :dynamic-extent (or (not (null (assoc 'dynamic-extent vdecls)))
+                      (trucler:dynamic-extent desc))))
+
+(defmethod augment-description
+    ((desc trucler:global-symbol-macro-description) vdecls)
+  (make-instance 'trucler:global-symbol-macro-description
+    :name (trucler:name desc) :expansion (trucler:expansion desc)
+    :ignore (or (cdr (assoc 'ignore vdecls)) (trucler:ignore desc))
+    :type (let ((existing (trucler:type desc))
+                (newpair (assoc 'type vdecls)))
+            (cond ((null newpair) existing)
+                  ((eq existing 't) (cdr newpair))
+                  (t `(and ,(cdr newpair) ,existing))))))
+(defmethod augment-description
+    ((desc trucler:local-symbol-macro-description) vdecls)
+  (make-instance 'trucler:local-symbol-macro-description
+    :name (trucler:name desc) :expansion (trucler:expansion desc)
+    :ignore (or (cdr (assoc 'ignore vdecls)) (trucler:ignore desc))
+    :type (let ((existing (trucler:type desc))
+                (newpair (assoc 'type vdecls)))
+            (cond ((null newpair) existing)
+                  ((eq existing 't) (cdr newpair))
+                  (t `(and ,(cdr newpair) ,existing))))))
+
+(defmethod augment-description
+    ((desc trucler:global-function-description) fdecls)
+  (make-instance 'trucler:global-function-description
+    :name (trucler:name desc) :compiler-macro (trucler:compiler-macro desc)
+    :ignore (or (cdr (assoc 'ignore fdecls)) (trucler:ignore desc))
+    :type (let ((existing (trucler:type desc))
+                (newpair (assoc 'type fdecls)))
+            (cond ((null newpair) existing)
+                  ((eq existing 't) (cdr newpair))
+                  (t `(and ,(cdr newpair) ,existing))))
+    :dynamic-extent (or (not (null (assoc 'dynamic-extent fdecls)))
+                      (trucler:dynamic-extent desc))
+    :inline (or (cdr (assoc 'inline fdecls)) (trucler:inline desc))
+    :inline-data (trucler:inline-data desc)))
+(defmethod augment-description
+    ((desc trucler:local-function-description) fdecls)
+  (make-instance 'trucler:local-function-description
+    :name (trucler:name desc) :identity (trucler:identity desc)
+    :ignore (or (cdr (assoc 'ignore fdecls)) (trucler:ignore desc))
+    :type (let ((existing (trucler:type desc))
+                (newpair (assoc 'type fdecls)))
+            (cond ((null newpair) existing)
+                  ((eq existing 't) (cdr newpair))
+                  (t `(and ,(cdr newpair) ,existing))))
+    :dynamic-extent (or (not (null (assoc 'dynamic-extent fdecls)))
+                      (trucler:dynamic-extent desc))
+    :inline (or (cdr (assoc 'inline fdecls)) (trucler:inline desc))
+    :inline-data (trucler:inline-data desc)))
+
+(defun make-symbol-macro (name expansion &key ignore (type t))
+  (make-instance 'trucler:local-symbol-macro-description
+    :name name :expansion expansion :ignore ignore :type type))
 
 (defun globally-special-p (symbol env)
   (typep (var-info symbol env) 'trucler:global-special-variable-description))
 
-(defun make-local-function (name frame-offset cfunction &key ignore)
+(defun make-local-function (name frame-offset cfunction
+                            &key ignore (type t) dynamic-extent
+                              inline inline-data)
   (make-instance 'trucler:local-function-description
-    :name name :ignore ignore
-    :identity (make-lexical-info frame-offset cfunction)))
+    :name name :ignore ignore :type type :dynamic-extent dynamic-extent
+    :inline inline :inline-data inline-data
+    :identity (make-ignorable-lexical-info frame-offset cfunction)))
 
-(defun make-local-macro (name expander)
+(defun make-local-macro (name expander &key ignore)
   (make-instance 'trucler:local-macro-description
-    :name name :expander expander))
+    :name name :expander expander :ignore ignore))
 
 (defun add-macros (env macros)
   (make-lexical-environment env :funs (append macros (funs env))))

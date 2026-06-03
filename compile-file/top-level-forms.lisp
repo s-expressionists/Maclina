@@ -61,7 +61,7 @@
              (expander (cmp:compute-macroexpander
                         name lambda-list body aenv))
              (info (cmp:make-local-macro name expander)))
-        (push (cons name info) macros)))
+        (push info macros)))
     (compile-toplevel-locally
      body (cmp:add-macros env macros))))
 
@@ -69,7 +69,7 @@
   (let ((smacros
           (loop for (name expansion) in bindings
                 for info = (cmp:make-symbol-macro name expansion)
-                collect (cons name info))))
+                collect info)))
     (compile-toplevel-locally
      body (cmp:add-symbol-macros env (nreverse smacros)))))
 

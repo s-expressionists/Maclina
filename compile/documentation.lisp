@@ -109,4 +109,45 @@ See CMODULE"
       (documentation 'link 'function)
       "Finish compilation of the MODULE, computing the final, linked bytecode. Does not load constants.
 
-See CMODULE")
+See CMODULE"
+      (documentation 'process-declaration 'function)
+      "Process a declaration specifier into what variables and/or functions it applies to.
+Three values are returned:
+1) A list (symbol key value) of variable declarations
+2) A list (function-name key value) of function declarations
+3) A list (key . value) of other declarations
+SYMBOL and FUNCTION-NAME are what the declaration applies to.
+KEY is generally the declaration identifier (e.g. SPECIAL, TYPE) and VALUE is what information is associated with that key.
+In the case of boolean declarations (SPECIAL, DX) the value is treated as a generalized boolean.
+
+See PROCESS-DECLARATIONS"
+      (documentation 'process-binding-declaration 'function)
+      "Helper function for processing declarations that apply to both variables and functions, like IGNORE.
+DECLARATION-DATA is the part of a declaration specifier naming variables and functions, so e.g. for (ignore x #'y) it would be (x #'y). KEY and VALUE are the key and value that the environment should store for this declaration.
+This function can be called from PROCESS-DECLARATION methods. For example, IGNORABLE can be processed with (process-binding-declaration (cdr declspec) 'ignore 'ignorable).
+
+See PROCESS-DECLARATION"
+      (documentation 'process-variable-declaration 'function)
+      "Helper function for processing declarations that apply only to variables, like TYPE.
+DECLARATION-DATA is the part of a declaration specifier naming variables, so e.g. for (type cons x y) it would be (x y). KEY and VALUE are the key and value that the environment should store for this declaration.
+This function can be called from PROCESS-DECLARATION methods. For example, TYPE can be processed with (process-binding-declaration (cddr declspec) 'type (second declspec)).
+
+See PROCESS-DECLARATION"
+      (documentation 'process-binding-declaration 'function)
+      "Helper function for processing declarations that apply only to functions, like INLINE
+DECLARATION-DATA is the part of a declaration specifier naming functions, so e.g. for (inline x y) it would be (x y). KEY and VALUE are the key and value that the environment should store for this declaration.
+This function can be called from PROCESS-DECLARATION methods. For example, NOTINLINE can be processed with (process-binding-declaration (cdr declspec) 'inline 'notinline).
+
+See PROCESS-DECLARATION"
+      (documentation 'process-declarations 'function)
+      "Process declaration specifiers into what variables and functions they apply to.
+Three values are returned:
+1) An alist (symbol . decls) of variable declarations
+2) An alist (function-name . decls) of function declarations
+3) An alist (key . value) of other declarations
+SYMBOL and FUNCTION-NAME are what the declaration applies to.
+Each list of DECLS consists of pairs of (KEY . VALUE).
+KEY is generally the declaration identifier (e.g. SPECIAL, TYPE) and VALUE is what information is associated with that key.
+In the case of boolean declarations (SPECIAL, DX) the value is treated as a generalized boolean.
+
+See PROCESS-DECLARATION")
