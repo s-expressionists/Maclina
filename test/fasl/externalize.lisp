@@ -33,6 +33,11 @@
       (defpack "COMMON-LISP")
       (defpack "KEYWORD")
       (defpack "MACLINA.TEST"))
+    ;; possible bug: the intern instruction in loadltv now tries to bind host
+    ;; *package* to client *package* to avoid package locks, which means we can't
+    ;; intern anything unless cl:*package* is bound in the client.
+    (clostrum:make-variable m:*client* rte 'cl:*package*
+                            (find-package "MACLINA.TEST"))
     ce))
 
 (defun compile-test-file (input-file &rest keys &key &allow-other-keys)
@@ -88,26 +93,44 @@
 
 ;;; List of objects to test externalization of.
 (defparameter *externalization-universe*
-  (list 12 (* 3 most-positive-fixnum)
-        #-sbcl #p"SYS:SRC;CORE;LISPLIST.CC"
-        #-sbcl #p"/usr/share/Adobe/doc/example/android_vm/root/sbin/ls.jar"
-        -17 0 (- (* most-negative-fixnum 7) 8)
-        4/3 -3/2 7.6s0 3.2f-4 4.1d8 5.6l23 #c(3.2 4.7) #c(-8 3/2)
-        #\Newline #\7 'dribble '#:make-load-form '#:nonexist
-        *package* '(machine-instance . 223) '#1=(#1# (#1# . #1#) . #1#)
-        (make-hash-table) (make-hash-table :test #'equal)
-        (let ((ht (make-hash-table)))
-          (setf (gethash 4 ht) "booze" (gethash 'hello ht) 'world)
-          ht)
-        '#3=(#2=(#3# #2#) #1# . #2#) "Hello, world!" #*11010110101
-        #0a17 #4=#0a#4# #5=#2a((#5# #4#) (#3# #5#)) "畫蛇添足"
-        (make-array '(3 2) :element-type 'standard-char
-                           :initial-contents '((#\f #\7) (#\Space #\\) (#\. #\%)))
-        (make-array '(3 3 3) :adjustable t :initial-element '#:horn)
-        (make-array 2 :displaced-to '#5#)
-        (make-array 7 :element-type '(unsigned-byte 3) :fill-pointer 2
-                      :initial-element 2)
-        #(2 #:blue #'standard-object "who?" #2a((0 1) (1 0)))))
+  ;; SBCL's file compiler sometimes crashes weirdly on complex literals, so we
+  ;; just construct them at load time. Other implementations might suck too.
+  (let* (;; #1=(#1# (#1# . #1#) . #1#)
+         (one (list* nil (cons nil nil) nil))
+         ;; #3=(#2=(#3# #2#) #1# . #2#)
+         (two (list nil nil))
+         (three (list* two one two))
+         ;; #4=#0a#4#
+         (four (make-array ()))
+         ;; #5=#2a((#5# #4#) (#3# #5#))
+         (five (make-array '(2 2))))
+    (setf (car one) one (car (second one)) one (cdr (second one)) one
+          (cddr one) one
+          (first two) three (second two) two
+          (aref four) four
+          (aref five 0 0) five (aref five 0 1) four
+          (aref five 1 0) three (aref five 1 1) five)
+    (list 12 (* 3 most-positive-fixnum)
+          #-sbcl #p"SYS:SRC;CORE;LISPLIST.CC"
+          #-sbcl #p"/usr/share/Adobe/doc/example/android_vm/root/sbin/ls.jar"
+          -17 0 (- (* most-negative-fixnum 7) 8)
+          4/3 -3/2 7.6s0 3.2f-4 4.1d8 5.6l23 #c(3.2 4.7) #c(-8 3/2)
+          #\Newline #\7 'dribble '#:make-load-form '#:nonexist
+          *package* '(machine-instance . 223) one
+          (make-hash-table) (make-hash-table :test #'equal)
+          (let ((ht (make-hash-table)))
+            (setf (gethash 4 ht) "booze" (gethash 'hello ht) 'world)
+            ht)
+          three
+          "Hello, world!" #*11010110101
+          four five "畫蛇添足"
+          (make-array '(3 2) :element-type 'standard-char
+                             :initial-contents '((#\f #\7) (#\Space #\\) (#\. #\%)))
+          (make-array '(3 3 3) :adjustable t :initial-element '#:horn)
+          (make-array 2 :displaced-to five)
+          (make-array 7 :element-type '(unsigned-byte 3) :fill-pointer 2
+                        :initial-element 2)
+          #(2 #:blue #'standard-object "who?" #2a((0 1) (1 0))))))
 
 (5am:test externalize-objects
   (mapc #'test-externalize *externalization-universe*)
