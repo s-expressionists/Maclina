@@ -141,12 +141,12 @@
   ;; FIXME: dunno about other implementations
   #+sbcl(5am:skip "Can't externalize SBCL pathnames as the hosts are bespoke and unexternalizable"))
 
+#+(or)
 (5am:test environment-inconsistency
   ;; Package inconsistency
   ;; Unfortunately this test is not valid: DELETE-PACKAGE gives later
   ;; package operations (e.g. INTERN) undefined effects, rather than
   ;; making them errors. For shame.
-  #+(or)
   (let* ((pname (gensym "PACKAGE"))
 	 (package (make-package pname))
 	 (symbol (intern (symbol-name pname) package))
