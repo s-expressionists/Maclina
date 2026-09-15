@@ -77,6 +77,10 @@
 (defstruct (constant-info (:constructor make-constant-info (value)))
   (value (error "missing arg") :read-only t))
 
+;;; a constant that can be referenced by name rather than value.
+(defstruct (named-constant-info (:constructor make-named-constant-info (name)))
+  (name (error "missing arg") :read-only t))
+
 (defstruct (ltv-info (:constructor make-ltv-info (form read-only-p)))
   (form (error "missing arg") :read-only t)
   (read-only-p (error "missing arg") :read-only t))
@@ -139,6 +143,18 @@
 (defun new-literal-index (literal context)
   (vector-push-extend (make-constant-info literal)
                       (cmodule-literals (context-module context))))
+
+(defun find-named-constant-index (name literals)
+  (loop for i from 0
+        for info across literals
+        when (and (named-constant-info-p info)
+                  (eql (named-constant-info-name info) name))
+          return i))
+
+(defun named-constant-index (name context)
+  (let ((literals (cmodule-literals (context-module context))))
+    (or (find-named-constant-index name literals)
+        (vector-push-extend (make-named-constant-info name) literals))))
 
 (defun find-fdefinition-index (function-name literals)
   (loop for i from 0
@@ -951,6 +967,15 @@
     (when (eql (context-receiving context) -1)
       (assemble context m:pop))))
 
+(defun compile-named-constant (name env context)
+  (declare (ignore env))
+  (unless (eql (context-receiving context) 0)
+    (case name
+      ((nil) (assemble context m:nil))
+      (t (emit-const context (named-constant-index name context))))
+    (when (eql (context-receiving context) -1)
+      (assemble context m:pop))))
+
 (defgeneric compile-symbol (info form env context))
 
 (defun expand (expander form env)
@@ -1021,7 +1046,7 @@
 (defmethod compile-symbol ((info trucler:constant-variable-description)
                            form env context)
   (declare (ignore form))
-  (compile-literal (trucler:value info) env context))
+  (compile-named-constant (trucler:name info) env context))
 
 (defmethod compile-symbol ((info trucler:special-variable-description)
                            form env context)
@@ -2408,6 +2433,9 @@
 (defmethod load-literal-info (client (info constant-info) env)
   (declare (ignore client env))
   (constant-info-value info))
+(defmethod load-literal-info (client (info named-constant-info) env)
+  (m:symbol-value client (run-time-environment m:*client* env)
+                  (named-constant-info-name info)))
 (defmethod load-literal-info (client (info fdefinition-info) env)
   (m:link-function client (run-time-environment m:*client* env)
                    (fdefinition-info-name info)))

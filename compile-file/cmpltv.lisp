@@ -158,6 +158,12 @@
 (defclass environment-lookup (creator)
   ())
 
+;;; Get a special or constant variable's value, as by SYMBOL-VALUE.
+;;; This is useful for indirect reference to constants, so that e.g.
+;;; (defconstant +foo+ (something-undumpable)) is supported.
+(defclass vdefinition-lookup (creator)
+  ((%name :initarg :name :reader name :type creator)))
+
 (defclass general-creator (vcreator)
   (;; Reference to a function designator to call to allocate the object,
    ;; e.g. a function made of the first return value from make-load-form.
@@ -943,6 +949,14 @@
 (defmethod ensure-module-literal ((info cmp:constant-info))
   (ensure-constant (cmp:constant-info-value info)))
 
+(defmethod ensure-module-literal ((info cmp:named-constant-info))
+  (ensure-named-constant (cmp:named-constant-info-name info)))
+
+(defun ensure-named-constant (name)
+  (or (find-oob name)
+      (add-oob name
+               (make-instance 'vdefinition-lookup
+                 :name (ensure-constant name)))))
 (defun ensure-function (cfunction)
   (or (find-oob cfunction) (add-function cfunction)))
 

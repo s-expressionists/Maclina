@@ -56,6 +56,7 @@
     (find-class 98 sind cnind)
     (init-object-array 99 ub64)
     (environment 100)
+    (symbol-value 101 nind)
     (make-binary16 102 sind ub16)
     (make-binary128 103 sind ub128)
     (attribute 255 name nbytes . data)))
@@ -485,6 +486,10 @@
 
 (defmethod encode ((inst environment-lookup) stream)
   (write-mnemonic 'environment stream))
+
+(defmethod encode ((inst vdefinition-lookup) stream)
+  (write-mnemonic 'symbol-value stream)
+  (write-index (name inst) stream))
 
 (defmethod encode ((inst general-creator) stream)
   (write-mnemonic 'funcall-create stream)

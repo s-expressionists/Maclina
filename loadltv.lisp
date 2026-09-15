@@ -38,6 +38,7 @@
     (find-class 98 sind cnind)
     (init-object-array 99 ub64)
     (environment 100)
+    (symbol-value 101 nind)
     (make-binary16 102 sind ub16)
     (make-binary128 103 sind ub128)
     (attribute 255 name nbytes . data)))
@@ -727,6 +728,12 @@ Did not initialize constants~{ #~d~}"
   (declare (ignore stream))
   (dbgprint " (environment)")
   (setf (next-constant) (m:link-environment m:*client* *environment*)))
+
+(defmethod %load-instruction ((mnemonic (eql 'symbol-value)) stream)
+  (let ((namei (read-index stream)))
+    (dbgprint " (symbol-value ~d)" namei)
+    (setf (next-constant)
+          (m:symbol-value m:*client* *environment* (constant namei)))))
 
 (defmethod %load-instruction ((mnemonic (eql 'funcall-create)) stream)
   (let ((funi (read-index stream))

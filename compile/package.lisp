@@ -22,6 +22,7 @@
   (:export #:fdefinition-info #:fdefinition-info-name)
   (:export #:value-cell-info #:value-cell-info-name)
   (:export #:constant-info #:constant-info-value)
+  (:export #:named-constant-info #:named-constant-info-name)
   (:export #:env-info)
   (:export #:cmodule #:make-cmodule #:cmodule-literals #:link)
   (:export #:cfunction #:cfunction-cmodule #:cfunction-nlocals
