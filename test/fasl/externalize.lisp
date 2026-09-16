@@ -141,6 +141,68 @@
   ;; FIXME: dunno about other implementations
   #+sbcl(5am:skip "Can't externalize SBCL pathnames as the hosts are bespoke and unexternalizable"))
 
+(defun make-unext-clean-compilation-environment (object)
+  (let* ((rte (make-instance 'clostrum-basic:run-time-environment))
+         (ce (make-instance 'clostrum-basic:compilation-environment
+               :parent rte)))
+    (clostrum:make-special-operator m:*client* rte 'setq t)
+    (clostrum:make-special-operator m:*client* rte 'quote t)
+    (clostrum:make-constant m:*client* rte '+source+ object)
+    ;; FIXME: make-variable's value should be optional. Oopsie.
+    (clostrum:make-variable m:*client* rte '*compiled* nil)
+    (loop for var in '(*read-suppress* *read-eval* *features* *read-base*
+		       *read-default-float-format*)
+	  do (clostrum:make-parameter m:*client* rte var (symbol-value var)))
+    ce))
+(defun make-unext-clean-load-environment (object)
+  (let* ((rte (make-instance 'clostrum-basic:run-time-environment))
+         (ce (make-instance 'clostrum-basic:compilation-environment
+               :parent rte)))
+    (clostrum:make-variable m:*client* rte '*compiled* nil)
+    (clostrum:make-constant m:*client* rte '+source+ object)
+    (flet ((defpack (name)
+             (let ((package (find-package name)))
+               (setf (clostrum:find-package m:*client* rte name) package
+                     (clostrum:package-name m:*client* rte package) name))))
+      (defpack "COMMON-LISP")
+      (defpack "KEYWORD")
+      (defpack "MACLINA.TEST"))
+    ;; possible bug: the intern instruction in loadltv now tries to bind host
+    ;; *package* to client *package* to avoid package locks, which means we can't
+    ;; intern anything unless cl:*package* is bound in the client.
+    (clostrum:make-variable m:*client* rte 'cl:*package*
+                            (find-package "MACLINA.TEST"))
+    ce))
+
+(defun compile-unexternalization-test-file (object)
+  (with-open-file (s "externalization-test-file.lisp"
+                     :direction :output :if-exists :supersede)
+    (write-line "(setq *compiled* +source+)" s))
+  (multiple-value-bind (output failurep warningsp)
+      (compile-test-file "externalization-test-file.lisp"
+                         :verbose nil
+                         :environment (make-unext-clean-compilation-environment object))
+    (5am:is-false failurep "Compilation failed")
+    (5am:is-false warningsp "compilation signaled warnings")
+    output))
+
+(defun load-unexternalized-object (filename object)
+  (let* ((load-env (make-unext-clean-load-environment object))
+         (load-rte
+           (maclina.compile:run-time-environment m:*client* load-env)))
+    (maclina.load:load-bytecode filename :environment load-rte)
+    (maclina.compile:eval '*compiled* load-env)))
+
+(5am:test named-unexternalizable-object
+  ;; Test that we can "dump" named constants without actually serializing them
+  ;; by referring to a name they have.
+  ;; We use a different object on either end mostly to test that we're not actually
+  ;; somehow serializing a host function.
+  (let* ((output (compile-unexternalization-test-file #'list))
+         (compiled (load-unexternalized-object output #'list*)))
+    (5am:is (eql #'list* compiled)
+            "~s loaded as un-similar object ~s" #'list* compiled)))
+
 #+(or)
 (5am:test environment-inconsistency
   ;; Package inconsistency
