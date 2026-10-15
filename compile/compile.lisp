@@ -27,7 +27,8 @@
   ;; The index of this function in the containing module's function
   ;; vector.
   index
-  ;; The loaded actual function for this cfunction.
+  ;; The loaded actual function for this cfunction,
+  ;; or a saved-function if the cfunction is saved for later instead.
   info
   ;; A function name for debugging purposes (e.g. printing).
   ;; NIL means no name provided. Hopefully you don't want to name
@@ -63,6 +64,27 @@
 (defmethod documentation ((obj cfunction) (eql t))
   (cfunction-doc obj))
 
+;;; A cfunction that has been linked but not loaded, used for inlining.
+;;; This is essentially identical to a runtime function, but distinguished
+;;; so that it's not accidentally called etc.
+(defstruct (saved-function (:constructor make-saved-function
+                               (module nlocals environment-size
+                                entry-pc size
+                                name doc lambda-list lambda-list-p
+                                source)))
+  module
+  nlocals
+  environment-size
+  entry-pc
+  size
+  ;; debug stuff
+  name
+  doc
+  lambda-list lambda-list-p
+  source
+  ;; slot to hold the eventual runtime function.
+  (info nil))
+
 (defstruct (cmodule (:constructor make-cmodule ()))
   (cfunctions (make-array 1 :fill-pointer 0 :adjustable t) :read-only t)
   ;; Each entry in this vector is either a constant-info, an ltv-info,
@@ -73,6 +95,15 @@
   ;; odd reason) gets a constant-info, distinguishing it from a cfunction
   ;; in the vector which will be linked to an actual function.
   (literals (make-array 0 :fill-pointer 0 :adjustable t) :read-only t))
+
+;;; A cmodule that has been linked but not loaded, used for inlining.
+;;; Normal linking skips this as an unnecessary step and makes a runtime
+;;; function directly.
+(defstruct (saved-module (:constructor make-saved-module
+                             (bytecode literals pc-map)))
+  bytecode
+  literals
+  pc-map)
 
 (defstruct (constant-info (:constructor make-constant-info (value)))
   (value (error "missing arg") :read-only t))
@@ -173,6 +204,11 @@
   (let ((literals (cmodule-literals (context-module context))))
     (or (position cfunction literals)
         (vector-push-extend cfunction literals))))
+
+(defun inline-literal-index (inline context)
+  (let ((literals (cmodule-literals (context-module context))))
+    (or (position inline literals)
+        (vector-push-extend inline literals))))
 
 (defun find-value-cell-index (name literals)
   (loop for i from 0
@@ -1086,9 +1122,14 @@
       (let ((expansion (expand expander form env)))
         (unless (eq form expansion)
           (return-from compile-combination
-            (compile-form expansion env context)))))
-    (emit-called-fdefinition context (fdefinition-index (trucler:name info) context))
-    (compile-call (rest form) env context)))
+            (compile-form expansion env context))))))
+  (let ((inline (and (eq (trucler:inline info) 'inline)
+                     (trucler:inline-data info))))
+    (if (typep inline 'saved-function)
+        (emit-const context (inline-literal-index inline context))
+        (emit-called-fdefinition
+         context (fdefinition-index (trucler:name info) context))))
+  (compile-call (rest form) env context))
 
 (defmethod compile-combination ((info null) form env context)
   (warn-unknown 'unknown-function
@@ -2428,6 +2469,8 @@
 (defmethod load-literal-info (client (info cfunction) env)
   (declare (ignore client env))
   (cfunction-info info))
+(defmethod load-literal-info (client (info saved-function) env)
+  (load-saved-function client info env))
 (defmethod load-literal-info (client (info ltv-info) env)
   (eval (ltv-info-form info) env client))
 (defmethod load-literal-info (client (info constant-info) env)
@@ -2500,3 +2543,88 @@
 (defun link-function (cfunction env)
   (link-load (cfunction-cmodule cfunction) env)
   (cfunction-info cfunction))
+
+(defun save-module (cmodule)
+  (multiple-value-bind (bytecode pc-map) (link cmodule)
+    (let* ((cmodule-literals (cmodule-literals cmodule))
+           (saved-literals (make-array (length cmodule-literals)))
+           (saved-module
+             (make-saved-module bytecode saved-literals pc-map)))
+      ;; Give each cfunction a corresponding saved function and stick it
+      ;; in its info.
+      (loop for cfunction across (cmodule-cfunctions cmodule)
+            for fun = (make-saved-function
+                       saved-module (cfunction-%nlocals cfunction)
+                       (length (cfunction-closed cfunction))
+                       (annotation-module-position
+                        (cfunction-entry-point cfunction))
+                       (cfunction-final-size cfunction)
+                       (cfunction-name cfunction)
+                       (cfunction-doc cfunction)
+                       (cfunction-lambda-list cfunction)
+                       (cfunction-lambda-list-p cfunction)
+                       (cfunction-source cfunction))
+            do (setf (cfunction-info cfunction) fun))
+      (flet ((resolve-info (info)
+               (if (typep info 'cfunction)
+                   (cfunction-info info)
+                   info)))
+        ;; Replace each cfunction in the pc map with its info.
+        (map-into pc-map #'resolve-info pc-map)
+        ;; Ditto for the literals.
+        (map-into saved-literals #'resolve-info cmodule-literals))
+      ;; done!
+      saved-module)))
+
+(defun %load-saved-function (client module saved-function)
+  (let ((f (m:make-function
+            client module
+            (saved-function-nlocals saved-function)
+            (saved-function-environment-size saved-function)
+            (saved-function-entry-pc saved-function)
+            (saved-function-size saved-function))))
+    (setf (m:name f) (saved-function-name saved-function)
+          (documentation f 'cl:function)
+          (saved-function-doc saved-function))
+    (when (saved-function-lambda-list-p saved-function)
+      (setf (m:lambda-list f) (saved-function-lambda-list saved-function)))
+    f))
+
+(defun load-module (client saved-module env)
+  (let* ((bytecode (saved-module-bytecode saved-module))
+         (module (m:make-module client bytecode)))
+    (flet ((load-fun (saved-function)
+             (or (saved-function-info saved-function)
+                 (setf (saved-function-info saved-function)
+                       (%load-saved-function client module saved-function))))
+           (our-lfun-p (info)
+             (and (typep info 'saved-function)
+                  (eq (saved-function-module info) saved-module))))
+      ;; Load the literals. If we have a linked function from this module,
+      ;; create and install a function object. Otherwise do the norm.
+      (setf (m:literals module)
+            (map 'simple-vector
+                 (lambda (info)
+                   (if (our-lfun-p info)
+                       (load-fun info)
+                       (load-literal-info client info env)))
+                 (saved-module-literals saved-module)))
+      ;; similar with the map info
+      (setf (m:pc-map module)
+            (map 'simple-vector
+                 (lambda (info)
+                   (if (our-lfun-p info)
+                       (load-fun info)
+                       (load-map-info client info)))
+                 (saved-module-pc-map saved-module))))
+    module))
+
+;;; Given a cfunction, link the bytecode and pc-map and return a saved-function,
+;;; which can be used as inline data.
+(defun save-function (cfunction)
+  (save-module (cfunction-cmodule cfunction))
+  (cfunction-info cfunction))
+
+(defun load-saved-function (client saved-function env)
+  (load-module client (saved-function-module saved-function) env)
+  (saved-function-info saved-function))

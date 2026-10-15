@@ -39,6 +39,16 @@
            #:unknown-reference-resolution #:resolve-reference
            #:resolve-function #:resolve-macro #:resolve-type
            #:assumed-function-now-macro)
+  ;; Saved functions, for use in inlining
+  (:export #:saved-function #:save-function
+           #:saved-function-module
+           #:saved-function-nlocals #:saved-function-environment-size
+           #:saved-function-entry-pc #:saved-function-size
+           ;; FIXME: merge with cfunction-name etc, use methods
+           #:saved-function-name #:saved-function-doc #:saved-function-source
+           #:saved-function-lambda-list #:saved-function-lambda-list-p
+           #:saved-module
+           #:saved-module-bytecode #:saved-module-literals #:saved-module-pc-map)
   ;; Miscellaneous hooks
   (:export #:debug-lambda-name #:debug-lambda-list)
   (:export #:load-map-info)

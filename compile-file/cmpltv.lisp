@@ -928,6 +928,42 @@
              :lineno lineno :column column :filepos pos)))))
     inst))
 
+(defun add-saved-function (value)
+  (let ((inst
+          (add-oob
+           value
+           (make-instance 'bytefunction-creator
+             :cfunction value
+             :module (ensure-saved-module (cmp:saved-function-module value))
+             :nlocals (cmp:saved-function-nlocals value)
+             :nclosed (cmp:saved-function-environment-size value)
+             :entry-point (cmp:saved-function-entry-pc value)
+             :size (cmp:saved-function-size value)))))
+    (when (cmp:saved-function-name value)
+      (add-instruction (make-instance 'name-attr
+                         :object inst
+                         :objname (ensure-constant
+                                   (cmp:saved-function-name value)))))
+    (when (cmp:saved-function-doc value)
+      (add-instruction (make-instance 'docstring-attr
+                         :object inst
+                         :docstring (ensure-constant
+                                     (cmp:saved-function-doc value)))))
+    (when (cmp:saved-function-lambda-list-p value)
+      (add-instruction (make-instance 'lambda-list-attr
+                         :function inst
+                         :lambda-list (ensure-constant
+                                       (cmp:saved-function-lambda-list value)))))
+    (when (cmp:saved-function-source value)
+      (multiple-value-bind (path lineno column pos)
+          (source-location-data m:*client* (cmp:saved-function-source value))
+        (add-instruction
+         (make-instance 'spi-attr
+           :function inst
+           :pathname (ensure-constant path)
+           :lineno lineno :column column :filepos pos))))
+    inst))
+
 (defclass bytemodule-creator (vcreator)
   ((%cmodule :initarg :cmodule :reader bytemodule-cmodule)
    (%lispcode :initform nil :initarg :lispcode :reader bytemodule-lispcode)))
@@ -957,11 +993,18 @@
       (add-oob name
                (make-instance 'vdefinition-lookup
                  :name (ensure-constant name)))))
+
 (defun ensure-function (cfunction)
   (or (find-oob cfunction) (add-function cfunction)))
 
+(defun ensure-saved-function (saved-function)
+  (or (find-oob saved-function) (add-saved-function saved-function)))
+
 (defmethod ensure-module-literal ((info cmp:cfunction))
   (ensure-function info))
+
+(defmethod ensure-module-literal ((info cmp:saved-function))
+  (ensure-saved-function info))
 
 (defmethod ensure-module-literal ((info cmp:ltv-info))
   (add-instruction
@@ -998,6 +1041,10 @@
 (defmethod process-debug-info ((info cmp:cfunction))
   (make-instance 'debug-info-function
     :function (ensure-function info)))
+
+(defmethod process-debug-info ((info cmp:saved-function))
+  (make-instance 'debug-info-function
+    :function (ensure-saved-function info)))
 
 (defmethod process-debug-info ((info m:declarations-info))
   (make-instance 'debug-info-declarations
@@ -1125,3 +1172,23 @@ Abandoning further work on it and moving on."
 
 (defun ensure-module (module)
   (or (find-oob module) (add-module module)))
+
+(defun add-saved-module (value)
+  ;; Add the module first to prevent recursion.
+  (let ((mod
+          (add-oob
+           value
+           (make-instance 'bytemodule-creator
+             :prototype value :lispcode (cmp:saved-module-bytecode value)))))
+    (add-instruction
+     (make-instance 'setf-literals
+       :module mod :literals (map 'simple-vector #'ensure-module-literal
+                                  (cmp:saved-module-literals value))))
+    (add-instruction
+     (make-instance 'module-debug-attr
+       :module mod :infos (process-debug-infos
+                           (cmp:saved-module-pc-map value))))
+    mod))
+
+(defun ensure-saved-module (module)
+  (or (find-oob module) (add-saved-module module)))
