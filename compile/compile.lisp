@@ -83,7 +83,10 @@
   lambda-list lambda-list-p
   source
   ;; slot to hold the eventual runtime function.
-  (info nil))
+  (info nil)
+  ;; a name that can be used to load this function in FASLs. If NIL the FASL
+  ;; has to contain the actual function and not just do a lookup.
+  (lookup-name nil))
 
 (defstruct (cmodule (:constructor make-cmodule ()))
   (cfunctions (make-array 1 :fill-pointer 0 :adjustable t) :read-only t)
@@ -2621,10 +2624,14 @@
 
 ;;; Given a cfunction, link the bytecode and pc-map and return a saved-function,
 ;;; which can be used as inline data.
-(defun save-function (cfunction)
+(defun save-function (cfunction &optional name)
   (save-module (cfunction-cmodule cfunction))
-  (cfunction-info cfunction))
+  (let ((saved (cfunction-info cfunction)))
+    (when name (setf (saved-function-lookup-name saved) name))
+    saved))
 
 (defun load-saved-function (client saved-function env)
-  (load-module client (saved-function-module saved-function) env)
-  (saved-function-info saved-function))
+  (let ((name (saved-function-lookup-name saved-function)))
+    (cond (name (m:fdefinition client env name))
+          (t (load-module client (saved-function-module saved-function) env)
+             (saved-function-info saved-function)))))

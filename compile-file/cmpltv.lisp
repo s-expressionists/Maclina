@@ -929,6 +929,11 @@
     inst))
 
 (defun add-saved-function (value)
+  (when (cmp:saved-function-lookup-name value)
+    (return-from add-saved-function
+      (add-instruction (make-instance 'fdefinition-lookup
+                         :name (ensure-constant
+                                (cmp:saved-function-lookup-name value))))))
   (let ((inst
           (add-oob
            value

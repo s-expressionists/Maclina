@@ -47,6 +47,7 @@
            ;; FIXME: merge with cfunction-name etc, use methods
            #:saved-function-name #:saved-function-doc #:saved-function-source
            #:saved-function-lambda-list #:saved-function-lambda-list-p
+           #:saved-function-lookup-name
            #:saved-module
            #:saved-module-bytecode #:saved-module-literals #:saved-module-pc-map)
   ;; Miscellaneous hooks
