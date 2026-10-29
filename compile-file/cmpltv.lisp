@@ -888,13 +888,13 @@
    (%size :initarg :size :reader size :type (unsigned-byte 32))))
 
 ;;; Given a CFUNCTION, generate a creator for the eventual runtime function.
-(defun add-function (value)
+(defun %add-function (value module-creator)
   (let ((inst
           (add-oob
            value
            (make-instance 'bytefunction-creator
              :cfunction value
-             :module (ensure-module (cmp:cfunction-cmodule value))
+             :module module-creator
              :nlocals (cmp:cfunction-nlocals value)
              :nclosed (length (cmp:cfunction-closed value))
              :entry-point (cmp:cfunction-final-entry-point value)
@@ -927,6 +927,14 @@
              :pathname (ensure-constant path)
              :lineno lineno :column column :filepos pos)))))
     inst))
+
+(defun add-function (cfunction)
+  ;; We use this somewhat awkward structure because modules frequently
+  ;; include their cfunctions (in literals or debug info), so if we just
+  ;; went straight to %add-function we'd end up with duplicate functions.
+  (let ((module (ensure-module (cmp:cfunction-cmodule cfunction))))
+    (or (find-oob cfunction)
+        (%add-function cfunction module))))
 
 (defun add-saved-function (value)
   (when (cmp:saved-function-lookup-name value)
