@@ -312,6 +312,12 @@
    ;; A sequence of DEBUG-INFOs (and DEBUG-INFO-FUNCTIONs)
    (%infos :initarg :infos :reader infos :type sequence)))
 
+(defclass module-literal-kinds-attr (attribute)
+  ((%name :initform (ensure-constant "module-literal-kinds"))
+   (%module :initarg :module :reader module)
+   (%kinds :initarg :kinds :reader kinds
+           :type (simple-array (unsigned-byte 16) (*)))))
+
 (defclass debug-info ()
   ((%start :initarg :start :reader start :type (unsigned-byte 32))
    (%end :initarg :end :reader end :type (unsigned-byte 32))))
@@ -1081,7 +1087,7 @@
 (defvar *recursive-native* nil)
 
 (defun add-module (value)
-  (multiple-value-bind (bytecode pc-map) (cmp:link value)
+  (multiple-value-bind (bytecode pc-map literal-kinds) (cmp:link value)
     ;; Add the module first to prevent recursion.
     (let ((mod
             (add-oob
@@ -1097,6 +1103,10 @@
       (add-instruction
        (make-instance 'module-debug-attr
          :module mod :infos (process-debug-infos pc-map)))
+      (when (> (length literal-kinds) 0)
+        (add-instruction
+         (make-instance 'module-literal-kinds-attr
+           :module mod :kinds literal-kinds)))
       ;; If the client is providing a native compiler, use it.
       (when (and *module-native-compiler* (not *recursive-native*))
         (handler-case

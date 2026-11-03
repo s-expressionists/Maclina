@@ -2440,12 +2440,69 @@
     (map nil #'link-map-info pc-map)
     pc-map))
 
+;; We encode what the literals in the runtime module mean, for use in further
+;; compilation. This information is otherwise lost without doing a pretty deep
+;; analysis of the bytecode- consider determining if NIL is a constant or the
+;; environment, or whether a function cell is a literal constant or not.
+;; load-time-value information is totally unrecoverable otherwise.
+;; The Maclina runtime doesn't yet support robust further compilation, so
+;; this information is discarded by the runtime compiler and by the loader,
+;; but the computation is done here since it will eventually be needed by
+;; the runtime compiler and not just the file compiler.
+;; As for why it's stored in a compact format instead of something friendlier-
+;; it's still easy to decode, and in large systems you can actually exhaust
+;; heap by allocating something dumb for every single function.
+;; That compact format is as follows. It's a sparse array represented as a ub16
+;; array of (index encoded-kind) pairs.
+;; To determine what a literal means, further compilation first checks for an
+;; entry in the literal-kinds array. If there is one, that's the kind.
+;; If not, look at the type of the value. If it's a function cell or variable
+;; cell, it can be assumed to be a function or variable reference rather than a
+;; literal constant. If it's a bytecode function, it can be assumed to be a local
+;; function. Anything else can be assumed to be a literal constant.
+;; In the most common case the literal-kinds sparse array will thus be empty.
+(defgeneric compute-literal-kind (info))
+(defmethod compute-literal-kind (info)
+  (declare (ignore info))
+  nil)
+
+(defmethod compute-literal-kind ((info constant-info))
+  ;; FIXME: For this and named-constant-info, we may need to return :constant
+  ;; if it's a literal cell or function!
+  nil)
+(defmethod compute-literal-kind ((info ltv-info))
+  (if (ltv-info-read-only-p info) :ltv :ltv-mutable))
+(defmethod compute-literal-kind ((info inline-info)) :inline)
+(defmethod compute-literal-kind ((info env-info)) :environment)
+
+(defun encode-literal-kind (kind)
+  (ecase kind
+    ((:constant) 0)
+    ((:ltv) 1)
+    ((:ltv-mutable) 2)
+    ((:inline) 3)
+    ((:environment) 4)))
+
+(defun create-module-literal-kinds (cmodule)
+  (let ((codes (loop for literal across (cmodule-literals cmodule)
+                     for i from 0
+                     for kind = (compute-literal-kind literal)
+                     when kind
+                       collect i
+                       and collect (encode-literal-kind kind))))
+    (if (null codes)
+        ;; don't allocate an array for the usual case of emptiness
+        #.(make-array 0 :element-type '(unsigned-byte 16))
+        (make-array (length codes) :element-type '(unsigned-byte 16)
+                    :initial-contents codes))))
+
 ;;; Finish fixups for a module and return its final bytecode.
 (defun link (cmodule)
   (initialize-cfunction-positions cmodule)
   (resolve-fixup-sizes cmodule)
   (multiple-value-prog1 (values (create-module-bytecode cmodule)
-                                (create-module-pc-map cmodule))
+                                (create-module-pc-map cmodule)
+                                (create-module-literal-kinds cmodule))
     (clear-cmodule cmodule)))
 
 ;;; Remove unneeded parts of a cmodule after linking, so they can be

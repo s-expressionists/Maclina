@@ -605,6 +605,14 @@
     (write-b32 (length infos) stream)
     (map nil (lambda (info) (encode info stream)) infos)))
 
+(defmethod encode ((attr module-literal-kinds-attr) stream)
+  (let ((kinds (kinds attr)))
+    ;; kinds are encoded already as (index1 kind1 ...) so we don't have much to do.
+    (write-b32 (+ *index-bytes* 2 (* 2 (length kinds))) stream) ; length of attr
+    (write-index (module attr) stream)
+    (write-b16 (floor (length kinds) 2) stream)
+    (loop for k across kinds do (write-b16 k stream))))
+
 (defmethod encode ((info debug-info-function) stream)
   (write-debug-info-mnemonic :function stream)
   (write-index (di-function info) stream))
