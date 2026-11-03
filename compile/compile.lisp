@@ -130,6 +130,13 @@
 (defstruct (value-cell-info (:constructor make-value-cell-info (name)))
   (name (error "missing arg") :read-only t))
 
+;;; Info about an inlined function.
+;;; This includes the function itself (a saved-function) as well as its name,
+;;; the latter being used for lookup by the loader.
+(defstruct (inline-info (:constructor make-inline-info (name function)))
+  (name (error "missing arg") :read-only t)
+  (function (error "missing arg") :read-only t))
+
 ;;; This info represents the loader environment. It is used for a few
 ;;; instructions that need to perform runtime name lookups.
 ;;; Any constants vector has at most one of these, since everything is
@@ -208,10 +215,10 @@
     (or (position cfunction literals)
         (vector-push-extend cfunction literals))))
 
-(defun inline-literal-index (inline context)
+(defun inline-literal-index (name inline context)
   (let ((literals (cmodule-literals (context-module context))))
-    (or (position inline literals)
-        (vector-push-extend inline literals))))
+    (or (position inline literals :key #'inline-info-function)
+        (vector-push-extend (make-inline-info name inline) literals))))
 
 (defun find-value-cell-index (name literals)
   (loop for i from 0
@@ -1129,7 +1136,8 @@
   (let ((inline (and (eq (trucler:inline info) 'inline)
                      (trucler:inline-data info))))
     (if (typep inline 'saved-function)
-        (emit-const context (inline-literal-index inline context))
+        (emit-const context
+                    (inline-literal-index (trucler:name info) inline context))
         (emit-called-fdefinition
          context (fdefinition-index (trucler:name info) context))))
   (compile-call (rest form) env context))
@@ -2472,8 +2480,8 @@
 (defmethod load-literal-info (client (info cfunction) env)
   (declare (ignore client env))
   (cfunction-info info))
-(defmethod load-literal-info (client (info saved-function) env)
-  (load-saved-function client info env))
+(defmethod load-literal-info (client (info inline-info) env)
+  (m:fdefinition client env (inline-info-name info)))
 (defmethod load-literal-info (client (info ltv-info) env)
   (eval (ltv-info-form info) env client))
 (defmethod load-literal-info (client (info constant-info) env)
@@ -2579,49 +2587,6 @@
       ;; done!
       saved-module)))
 
-(defun %load-saved-function (client module saved-function)
-  (let ((f (m:make-function
-            client module
-            (saved-function-nlocals saved-function)
-            (saved-function-environment-size saved-function)
-            (saved-function-entry-pc saved-function)
-            (saved-function-size saved-function))))
-    (setf (m:name f) (saved-function-name saved-function)
-          (documentation f 'cl:function)
-          (saved-function-doc saved-function))
-    (when (saved-function-lambda-list-p saved-function)
-      (setf (m:lambda-list f) (saved-function-lambda-list saved-function)))
-    f))
-
-(defun load-module (client saved-module env)
-  (let* ((bytecode (saved-module-bytecode saved-module))
-         (module (m:make-module client bytecode)))
-    (flet ((load-fun (saved-function)
-             (or (saved-function-info saved-function)
-                 (setf (saved-function-info saved-function)
-                       (%load-saved-function client module saved-function))))
-           (our-lfun-p (info)
-             (and (typep info 'saved-function)
-                  (eq (saved-function-module info) saved-module))))
-      ;; Load the literals. If we have a linked function from this module,
-      ;; create and install a function object. Otherwise do the norm.
-      (setf (m:literals module)
-            (map 'simple-vector
-                 (lambda (info)
-                   (if (our-lfun-p info)
-                       (load-fun info)
-                       (load-literal-info client info env)))
-                 (saved-module-literals saved-module)))
-      ;; similar with the map info
-      (setf (m:pc-map module)
-            (map 'simple-vector
-                 (lambda (info)
-                   (if (our-lfun-p info)
-                       (load-fun info)
-                       (load-map-info client info)))
-                 (saved-module-pc-map saved-module))))
-    module))
-
 ;;; Given a cfunction, link the bytecode and pc-map and return a saved-function,
 ;;; which can be used as inline data.
 (defun save-function (cfunction &optional name)
@@ -2629,9 +2594,3 @@
   (let ((saved (cfunction-info cfunction)))
     (when name (setf (saved-function-lookup-name saved) name))
     saved))
-
-(defun load-saved-function (client saved-function env)
-  (let ((name (saved-function-lookup-name saved-function)))
-    (cond (name (m:fdefinition client env name))
-          (t (load-module client (saved-function-module saved-function) env)
-             (saved-function-info saved-function)))))

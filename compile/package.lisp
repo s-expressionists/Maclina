@@ -23,6 +23,7 @@
   (:export #:value-cell-info #:value-cell-info-name)
   (:export #:constant-info #:constant-info-value)
   (:export #:named-constant-info #:named-constant-info-name)
+  (:export #:inline-info #:inline-info-name #:inline-info-function)
   (:export #:env-info)
   (:export #:cmodule #:make-cmodule #:cmodule-literals #:link)
   (:export #:cfunction #:cfunction-cmodule #:cfunction-nlocals
