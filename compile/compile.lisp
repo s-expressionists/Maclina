@@ -215,9 +215,15 @@
     (or (position cfunction literals)
         (vector-push-extend cfunction literals))))
 
+(defun find-inline-index (data literals)
+  (loop for i from 0
+        for info across literals
+        when (and (inline-info-p info) (eq (inline-info-function info) data))
+          return i))
+
 (defun inline-literal-index (name inline context)
   (let ((literals (cmodule-literals (context-module context))))
-    (or (position inline literals :key #'inline-info-function)
+    (or (find-inline-index inline literals)
         (vector-push-extend (make-inline-info name inline) literals))))
 
 (defun find-value-cell-index (name literals)
