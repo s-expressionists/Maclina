@@ -1038,7 +1038,7 @@
          (expander (lambda (form env) (declare (ignore form env)) expansion)))
     (expand expander symbol env)))
 
-;;; Not used in this compiler, but useful in various other places.
+;;; Useful in various places.
 (defun macroexpand-1 (form &optional env)
   (typecase form
     (symbol
@@ -1056,7 +1056,6 @@
            (values form nil))))
     (t (values form nil))))
 
-;;; ditto.
 (defun macroexpand (form &optional env)
   (loop with ever-expanded = nil
         do (multiple-value-bind (expansion expandedp) (macroexpand-1 form env)
@@ -1130,38 +1129,135 @@
        (emit-call context arg-count))
     (compile-form (first args) env (new-context context :receiving 1))))
 
+(defun compile-global-call (info args form env context)
+  (let ((inline-status (trucler:inline info)))
+    ;; Compiler macro?
+    (let ((expander (and (not (eq inline-status 'notinline))
+                         (trucler:compiler-macro info))))
+      (when expander
+        (let ((expansion (expand expander form env)))
+          (unless (eq form expansion)
+            (return-from compile-global-call
+              (compile-form expansion env context))))))
+    ;; Special case optimization?
+    (let ((special (and (not (eq inline-status 'notinline))
+                        (trucler:inline-data info))))
+      (when (and (symbolp special)
+                 (compile-optimized-combination special args env context))
+        (return-from compile-global-call)))
+    ;; Try an inline definition
+    (let ((inline (and (eq inline-status 'inline) (trucler:inline-data info))))
+      (if (typep inline 'saved-function)
+          (emit-const context
+                      (inline-literal-index (trucler:name info) inline context))
+          ;; no inline definition, do a normal lookup
+          (emit-called-fdefinition
+           context (fdefinition-index (trucler:name info) context)))))
+  (compile-call args env context))
+
 (defmethod compile-combination ((info trucler:global-function-description)
                                 form env context)
-  (let ((expander (and (not (eq (trucler:inline info) 'notinline))
-                    (trucler:compiler-macro info))))
-    (when expander
-      (let ((expansion (expand expander form env)))
-        (unless (eq form expansion)
-          (return-from compile-combination
-            (compile-form expansion env context))))))
-  (let ((inline (and (eq (trucler:inline info) 'inline)
-                     (trucler:inline-data info))))
-    (if (typep inline 'saved-function)
-        (emit-const context
-                    (inline-literal-index (trucler:name info) inline context))
-        (emit-called-fdefinition
-         context (fdefinition-index (trucler:name info) context))))
-  (compile-call (rest form) env context))
+  (compile-global-call info (rest form) form env context))
+
+(defun compile-unknown-call (fname args env context)
+  (warn-unknown 'unknown-function
+                :name fname :source (context-source context))
+  (emit-called-fdefinition context (fdefinition-index fname context))
+  (compile-call args env context))
 
 (defmethod compile-combination ((info null) form env context)
-  (warn-unknown 'unknown-function
-                :name (first form) :source (context-source context))
-  (emit-called-fdefinition context (fdefinition-index (first form) context))
-  (compile-call (rest form) env context))
+  (compile-unknown-call (first form) (rest form) env context))
 
-(defmethod compile-combination ((info trucler:local-function-description)
-                                form env context)
+(defun compile-local-call (info args env context)
   (setf (lvar-readp info) t)
   (when (eq (trucler:ignore info) 'cl:ignore)
     (warn 'used :name (trucler:name info)
                 :kind 'function :source (context-source context)))
   (reference-lexical-variable (trucler:identity info) context)
-  (compile-call (rest form) env context))
+  (compile-call args env context))
+
+(defmethod compile-combination ((info trucler:local-function-description)
+                                form env context)
+  (compile-local-call info (rest form) env context))
+
+;;; Compile some function calls directly as bytecode when possible.
+;;; Return true if special compilation was done, otherwise NIL.
+(defgeneric compile-optimized-combination (key args env context)
+  (:method (key args env context)
+    (declare (ignore key args env context))
+    nil))
+
+(defmethod compile-optimized-combination ((key (eql 'cl:funcall)) args env context)
+  (let ((callee (macroexpand (first args) env))
+        (args (rest args)))
+    (typecase callee
+      ;; If CALLEE is a FUNCTION form, call it, applying optimizations if possible.
+      ;; FIXME: Should work based on special operators in the environment instead of
+      ;; literally CL:FUNCTION. COMPILE-FDESIGNATOR has the same problem.
+      ((cons (eql function) (cons t null))
+       (typecase (second callee)
+         (lambda-expression
+          (compile-lambda-expression (second callee) env context)
+          (compile-call args env context))
+         (t
+          (let ((info (trucler:describe-function m:*client* env (second callee))))
+            (typecase info
+              (null
+               (compile-unknown-call (second callee) args env context))
+              (trucler:local-function-description
+               (compile-local-call info args env context))
+              (trucler:global-function-description
+               ;; wrinkle: if someone writes
+               ;; (funcall #'funcall #'funcall #'foo ...) for whatever absurd reason,
+               ;; we might as well use the FOO compiler macro, but that means
+               ;; synthesizing a new form.
+               (compile-global-call info args `(funcall ,callee ,@args) env context))
+              (t ; macro info or something. Weird, give up and do a normal call.
+               (emit-called-fdefinition
+                context (fdefinition-index (trucler:name info) context))
+               (compile-call args env context)))))))
+      ;; If it's a QUOTE form, global call.
+      ;; We could apply optimizations here, but then we'd need to do an actual
+      ;; global lookup while skipping local definitions, which would be weird.
+      ;; Plus if someone writes (funcall 'foo ...) they're probably trying to force
+      ;; a runtime lookup, in which case we don't want to optimize.
+      ((cons (eql quote) (cons symbol null))
+       (emit-fdefinition context (fdefinition-index (second callee) context))
+       (compile-call args env context))
+      ;; General case, just fdesignator + call.
+      (t
+       (compile-form callee env (new-context context :receiving 1))
+       (assemble context m:fdesignator (env-index context))
+       (compile-call args env context))))
+  t)
+
+(defmethod compile-optimized-combination ((key (eql 'cl:values)) args env context)
+  (let ((receiving (context-receiving context)))
+    (if (eql receiving -1)
+        ;; If we have one argument, compile it in a one-value context and pop.
+        ;; Otherwise we don't have the instructions so give up,
+        ;; but maybe we ought to have a POPN for this. TODO
+        (cond ((= (length args) 1)
+               (compile-form (first args) env (new-context context :receiving 1))
+               (assemble context m:pop)
+               t)
+              (t nil))
+        ;; We want fixed values and we have fixed arguments.
+        ;; So, compile all the arguments, any past the returned having their values
+        ;; ignored, and fill in the remainder with NILs.
+        (progn
+          (loop with ncontext = (new-context context :receiving 1)
+                repeat receiving
+                if (null args)
+                  ;; We could just compile the nil here, but an environment
+                  ;; might not bind NIL to itself.
+                  do (assemble context m:nil)
+                else
+                  do (compile-form (pop args) env ncontext))
+          (loop with ncontext = (new-context context :receiving 0)
+                for arg in args
+                do (compile-form arg env ncontext))
+          t))))
 
 ;;; Given a lambda expression, compile it, and generate code to get the
 ;;; values it closes over. Return the cfunction.
@@ -1964,19 +2060,19 @@
 ;;; and otherwise fall back to a more complicated etypecase.
 ;;; With runtime support we could expand into (coerce-fdesignator form).
 (defun compile-fdesignator (form env context)
-  (typecase form
-    ((cons (eql function) (cons t null)) ; #'foo or #'(lambda ...)
-     (compile-function-lookup (second form) env context))
-    ((cons (eql lambda))
-     (compile-lambda-expression form env context))
-    ((cons (eql quote) (cons symbol null)) ; 'foo
-     ;; This is like compile-function-lookup but we ignore any local
-     ;; environments. We also don't signal any unknown function
-     ;; warnings as this is a very runtime sort of lookup.
-     (emit-fdefinition context (fdefinition-index (second form) context)))
-    (t
-     (compile-form form env (new-context context :receiving 1))
-     (assemble context m:fdesignator (env-index context)))))
+  (let ((form (macroexpand form env)))
+    (typecase form
+      ((cons (eql function) (cons t null)) ; #'foo or #'(lambda ...)
+       (compile-function-lookup (second form) env
+                                (new-context context :receiving 1)))
+      ((cons (eql quote) (cons symbol null)) ; 'foo
+       ;; This is like compile-function-lookup but we ignore any local
+       ;; environments. We also don't signal any unknown function
+       ;; warnings as this is a very runtime sort of lookup.
+       (emit-fdefinition context (fdefinition-index (second form) context)))
+      (t
+       (compile-form form env (new-context context :receiving 1))
+       (assemble context m:fdesignator (env-index context))))))
 
 (defmethod compile-special ((op (eql 'multiple-value-call)) form env context)
   (destructure-syntax (multiple-value-call function-form . forms)

@@ -80,6 +80,11 @@
                     (apply f fun args)))
         do (setf (clostrum:fdefinition client environment op) g)))
 
+;;; functions that Maclina can optimize specially
+(defun define-optimized (client environment)
+  (loop for op in '(funcall values)
+        do (setf (clostrum:operator-inline-data client environment op) op)))
+
 ;;; constants copied from the host
 (defun define-constants (client environment)
   (loop for c in '(t nil most-positive-fixnum most-negative-fixnum)
@@ -132,6 +137,7 @@
   (define-sham-aliases client environment)
   (define-env-access client environment)
   (define-stricter-aliases client environment)
+  (define-optimized client environment)
   (define-constants client environment)
   (define-macros client environment)
   (define-variables client environment)
