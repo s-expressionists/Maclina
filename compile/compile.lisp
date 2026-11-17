@@ -955,11 +955,28 @@
       ;; specifically want one of our lexical environments.
       (make-null-lexical-environment env)))
 
+;;; Client to use for compile-time evaluations (macroexpanders).
+;;; Defaults to the normal client.
+(defvar *evaluation-client*)
+;;; Global environment to use for compile-time evaluations (macroexpanders).
+;;; Defaults to the compilation environment.
+(defvar *evaluation-environment*)
+;;; The two above can only be specified for COMPILE-INTO, through the
+;;; :evaluation-environment and :evaluation-client keyword arguments,
+;;; since that's what the file compiler uses. Other entry points (EVAL, COMPILE)
+;;; are assumed to be for runtime, so they use the same client and environment
+;;; for all evaluations.
+
 ;;; Compile into an existing module. Don't link.
 ;;; Useful for the file compiler, and for the first stage of runtime COMPILE.
+;;; All entry points go through here at least indirectly.
 (defun compile-into (module lambda-expression env
                      &rest keys &key block-name declarations
-                                  (source (default-source-location)))
+                                  (source (default-source-location))
+                                  ((:evaluation-client *evaluation-client*)
+                                   m:*client*)
+                                  ((:evaluation-environment *evaluation-environment*)
+                                   env))
   (declare (ignore block-name declarations))
   (check-type lambda-expression lambda-expression)
   (let ((env (coerce-to-lexenv env))
@@ -1996,7 +2013,7 @@
                              :vars (append (nreverse smacros) (vars env)))
                        context))))
 
-(defun lexenv-for-macrolet (env)
+(defun lexenv-for-macrolet (env evaluation-environment)
   ;; Macrolet expanders need to be compiled in the local compilation environment,
   ;; so that e.g. their bodies can use macros defined in outer macrolets.
   ;; At the same time, they obviously do not have access to any runtime
@@ -2004,8 +2021,8 @@
   ;; it's slightly not-nice in that if someone writes a macroexpander that does
   ;; try to use local runtime information may fail silently by using global info
   ;; instead. So: FIXME.
-  (make-lexical-environment
-   env
+  (%make-lexical-environment
+   :global-environment evaluation-environment
    :vars (loop for desc in (vars env)
                when (typep desc '(or trucler:constant-variable-description
                                   trucler:symbol-macro-description))
@@ -2023,7 +2040,7 @@
 (defun compute-macroexpander (name lambda-list body env
                               &optional (source (default-source-location)))
   ;; see comment in parse-macro for explanation
-  ;; as to how we're using the host here
+  ;; as to how we're using the host here.
   (cl:compile nil (parse-macro name lambda-list body env
                                (lambda (lexpr env &rest keys)
                                  (apply #'compile-link lexpr env
@@ -2037,7 +2054,8 @@
              :bindings bindings
              :source (expr-source-location bindings (context-source context))))
     (let ((macros
-            (loop with env = (lexenv-for-macrolet env)
+            (loop with m:*client* = *evaluation-client*
+                  with env = (lexenv-for-macrolet env *evaluation-environment*)
                   for binding in bindings
                   for source = (expr-source-location
                                 binding (context-source context))

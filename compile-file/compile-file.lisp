@@ -36,6 +36,8 @@
 		                 ((:client m:*client*) m:*client*)
                                  ((:evaluation-client *evaluation-client*)
                                   m:*client*)
+                                 ((:evaluation-environment *evaluation-environment*)
+                                  environment)
                                  output-cfasl
                                &allow-other-keys)
   (cmp:with-compilation-results

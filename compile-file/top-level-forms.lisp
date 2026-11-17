@@ -54,10 +54,11 @@
 
 (defun compile-toplevel-macrolet (bindings body env)
   (let ((macros nil)
-        (aenv (cmp:lexenv-for-macrolet env)))
+        (aenv (cmp:lexenv-for-macrolet env *evaluation-environment*)))
     (dolist (binding bindings)
       (let* ((name (car binding)) (lambda-list (cadr binding))
              (body (cddr binding))
+             (m:*client* *evaluation-client*)
              (expander (cmp:compute-macroexpander
                         name lambda-list body aenv))
              (info (cmp:make-local-macro name expander)))

@@ -1,6 +1,6 @@
 (in-package #:maclina.compile-file)
 
-;;; Compilation environment the file compiler evaluates and compiles code in.
+;;; The environment the file compiler compiles code in.
 (defvar *environment*)
 
 ;;; Magic number used to identify our FASLs.
@@ -28,6 +28,9 @@
 ;;; By default it's just the client provided to compile-file, which is in turn
 ;;; just maclina.machine:*client*.
 (defvar *evaluation-client*)
+;;; The environment to use for compile time evaluation and CFASLs.
+;;; By default it's *environment*.
+(defvar *evaluation-environment*)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
