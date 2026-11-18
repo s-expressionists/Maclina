@@ -878,8 +878,12 @@
                                   &optional forms-only)
   (if forms-only
       (cmp:compile-into (cmp:make-cmodule) lambda-expression environment
-                        :declarations nil)
-      (cmp:compile-into (cmp:make-cmodule) lambda-expression environment)))
+                        :declarations nil
+                        :evaluation-client *evaluation-client*
+                        :evaluation-environment *evaluation-environment*)
+      (cmp:compile-into (cmp:make-cmodule) lambda-expression environment
+                        :evaluation-client *evaluation-client*
+                        :evaluation-environment *evaluation-environment*)))
 
 (defun compile-file-form (form env &optional (*coalescence* *coalescence*))
   (add-initializer-form form env))
