@@ -983,7 +983,9 @@
         (lambda-list (cadr lambda-expression))
         (body (cddr lambda-expression))
         (source (expr-source-location lambda-expression source)))
-    (apply #'compile-lambda lambda-list body env module :source source keys)))
+    (apply #'compile-lambda lambda-list body env module :source source
+           :allow-other-keys t ; ignore evaluation-client/environment
+           keys)))
 
 (defun compile-link (lambda-expression env &rest keys
                      &key block-name declarations source)
