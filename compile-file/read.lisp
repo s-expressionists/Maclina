@@ -18,8 +18,10 @@
 	;; with the native client. We can't bind cl:*readtable* to one of
 	;; eclector's readtables.
 	(aspect (if (eql aspect '*readtable*) 'eclector.reader:*readtable* aspect)))
-    (m:symbol-value m:*client*
-		    (cmp:run-time-environment m:*client* *environment*) aspect)))
+    (m:symbol-value *evaluation-client*
+		    (cmp:run-time-environment *evaluation-client*
+                                              *evaluation-environment*)
+                    aspect)))
 
 (defun %find-package (client environment name)
   ;; Find a package, accounting for package-local nicknames,
@@ -43,21 +45,22 @@
 
 (defmethod eclector.reader:call-with-state-value
     ((client reader-client) thunk aspect value)
-  (let* ((environment (cmp:run-time-environment m:*client* *environment*))
+  (let* ((environment (cmp:run-time-environment *evaluation-client*
+                                                *evaluation-environment*))
          (aspect (if (eql aspect '*readtable*) 'eclector.reader:*readtable* aspect))
          (value (if (eql aspect '*package*)
                     ;; Per Eclector documentation, it calls this
                     ;; with a value that's actually a string designator
                     ;; rather than a package.
-                    (find-package-or-err m:*client* environment value)
+                    (find-package-or-err *evaluation-client* environment value)
                     value)))
-    (m:progv m:*client* environment
+    (m:progv *evaluation-client* environment
       (list aspect) (list value)
       (funcall thunk))))
 
 (defmethod eclector.reader:evaluate-expression ((client reader-client)
                                                 expression)
-  (cmp:eval expression *environment*))
+  (cmp:eval expression *evaluation-environment* *evaluation-client*))
 
 ;;; FIXME: make-structure-instance probably also needs specialization.
 ;;; The host reader macro will look up the structure name in the host
@@ -84,8 +87,10 @@
                                   "~s is not bound to a package" '*package*)
                           cur))
                        (:keyword (find-package-or-err
-                                  m:*client* *environment* "KEYWORD"))
-                       (t (find-package-or-err m:*client* *environment*
+                                  *evaluation-client* *evaluation-environment*
+                                  "KEYWORD"))
+                       (t (find-package-or-err *evaluation-client*
+                                               *evaluation-environment*
                                                package-indicator)))))
         (if internp
             (let (;; overcome any package lock.
