@@ -1,7 +1,7 @@
 (defpackage #:maclina.machine
   (:use #:cl)
   (:shadow #:return #:throw #:symbol-value #:progv #:fdefinition #:nil #:eq
-           #:set #:push #:pop)
+           #:set #:push #:pop #:values)
   (:shadow #:boundp #:makunbound #:fboundp #:fmakunbound)
   (:shadow #:lambda-parameters-limit #:call-arguments-limit
            #:lambda-list-keywords #:multiple-values-limit)

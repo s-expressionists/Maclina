@@ -6,10 +6,10 @@
 (defgeneric (setf symbol-value) (new client environment symbol))
 (defgeneric boundp (client environment symbol))
 (defgeneric makunbound (client environment symbol))
-(defgeneric call-with-progv (client environment symbols values thunk))
+(defgeneric call-with-progv (client environment symbols vals thunk))
 
-(defmacro progv (client environment symbols values &body body)
-  `(call-with-progv ,client ,environment ,symbols ,values
+(defmacro progv (client environment symbols vals &body body)
+  `(call-with-progv ,client ,environment ,symbols ,vals
 		    (lambda () ,@body)))
 
 (defgeneric fboundp (client environment function-name))

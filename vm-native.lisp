@@ -423,6 +423,7 @@
                    ((#.m:encell)
                     (let ((index (next-code)))
                       (setf (local index) (make-cell (local index)))))
+                   ((#.m:pop) (setf (vm-values vm) (gather (next-code))) (incf ip))
                    ((#.m:long)
                     (case (next-code)
                       (#.m:ref (spush (local (next-long))) (incf ip))
@@ -489,6 +490,8 @@
                        (incf ip))
                       ((#.m:fdefinition #.m:called-fdefinition)
                        (spush (fdefinition (constant (next-long)))) (incf ip))
+                      ((#.m:pop)
+                       (setf (vm-values vm) (gather (next-long))) (incf ip))
                       (otherwise
                        (error 'm:unknown-long-opcode :opcode (code)))))
                    (otherwise

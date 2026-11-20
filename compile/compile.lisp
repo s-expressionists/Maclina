@@ -1234,14 +1234,12 @@
 (defmethod compile-optimized-combination ((key (eql 'cl:values)) args env context)
   (let ((receiving (context-receiving context)))
     (if (eql receiving -1)
-        ;; If we have one argument, compile it in a one-value context and pop.
-        ;; Otherwise we don't have the instructions so give up,
-        ;; but maybe we ought to have a POPN for this. TODO
-        (cond ((= (length args) 1)
-               (compile-form (first args) env (new-context context :receiving 1))
-               (assemble context m:pop)
-               t)
-              (t nil))
+        ;; Compile the arguments in a one-value context and then use VALUES.
+        (loop with ncontext = (new-context context :receiving 1)
+              for form in args
+              do (compile-form form env ncontext)
+              finally (assemble context m:values (length args))
+                      (return t))
         ;; We want fixed values and we have fixed arguments.
         ;; So, compile all the arguments, any past the returned having their values
         ;; ignored, and fill in the remainder with NILs.

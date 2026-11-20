@@ -117,6 +117,7 @@
     (protect 61 ((constant-arg 1)) ((constant-arg 2)))
     (cleanup 62)
     (encell 63 (1) (2))
+    (values 64 (1) (2))
     (long 255)))
 
 (define-condition m:unknown-opcode (error)
