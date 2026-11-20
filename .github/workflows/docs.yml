@@ -51,10 +51,10 @@ jobs:
         run: | # We quickload external dependencies since Staple doesn't. KLUDGE.
           sbcl --non-interactive --eval "(ql:quickload '(:staple-markdown :closer-mop :alexandria :trucler :ecclesia :eclector :ieee-floats :clostrum :clostrum-basic :clostrum-trucler :fiveam))" --eval "(staple:generate :maclina :output-directory #p\"_site/\")"
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v1
+        uses: actions/upload-pages-artifact@v5
         with:
           # Upload entire repository
           path: '_site/'
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v1
+        uses: actions/deploy-pages@v5
